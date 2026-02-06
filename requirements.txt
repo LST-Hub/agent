@@ -1,0 +1,6 @@
+pydantic>=2.0.0
+sqlalchemy>=2.0.0
+schedule>=1.2.0
+python-dotenv>=1.0.0
+openai>=1.0.0  # Optional for AI layer
+psycopg2-binary>=2.9.0 # or mysql-connector-python
