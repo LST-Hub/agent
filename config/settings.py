@@ -4,7 +4,7 @@ Reads environment variables and provides a centralized settings object.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 
@@ -22,7 +22,7 @@ class DatabaseConfig:
     
     @property
     def port(self) -> int:
-        return urlparse(self.url).port or 5432
+        return urlparse(self.url).port or 3306
     
     @property
     def name(self) -> str:
@@ -55,9 +55,9 @@ class AIConfig:
 @dataclass
 class AppSettings:
     """Global application settings."""
-    db: DatabaseConfig = DatabaseConfig()
-    smtp: SMTPConfig = SMTPConfig()
-    ai: AIConfig = AIConfig()
+    db: DatabaseConfig = field(default_factory=DatabaseConfig)
+    smtp: SMTPConfig = field(default_factory=SMTPConfig)
+    ai: AIConfig = field(default_factory=AIConfig)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
 # Singleton instance

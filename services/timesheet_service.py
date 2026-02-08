@@ -181,3 +181,20 @@ class TimesheetService:
                 underlogging_users.append(user)
                 
         return underlogging_users
+
+# from database.connection import db_manager
+# session = db_manager.get_session()
+# try:
+#         timesheet_service = TimesheetService(session)
+#         target_date = date(2026, 2, 6)
+        
+#         missing_users = timesheet_service.get_missing_timesheet_users(target_date)
+        
+#         print(f"Missing timesheets for {target_date}:")
+#         for user in missing_users:
+#             print(f"  - {user.name} ({user.email})")
+        
+#         print(f"\nTotal: {len(missing_users)} users")
+        
+# finally:
+#     session.close()  

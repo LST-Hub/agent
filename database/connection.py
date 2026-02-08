@@ -7,9 +7,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from config.settings import settings
 
-# Construct connection string (Placeholder for PostgreSQL/MySQL)
-# Example: postgresql://user:pass@localhost:5432/dbname
-DATABASE_URL = f"postgresql://{settings.db.user}:{settings.db.password}@{settings.db.host}:{settings.db.port}/{settings.db.name}"
+# Construct connection string for MySQL
+# Example: mysql+pymysql://user:pass@localhost:3306/dbname
+DATABASE_URL = f"mysql+pymysql://{settings.db.user}:{settings.db.password}@{settings.db.host}:{settings.db.port}/{settings.db.name}"
 
 class DatabaseManager:
     """
