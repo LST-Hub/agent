@@ -14,7 +14,7 @@ load_dotenv()
 @dataclass
 class DatabaseConfig:
     """Database connection parameters."""
-    url: str = os.getenv("DATABASE_URL", "postgresql://user:@localhost:5432/project_db")
+    url: str = os.getenv("DATABASE_URL")
     
     @property
     def host(self) -> str:

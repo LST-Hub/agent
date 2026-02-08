@@ -25,8 +25,12 @@ class JobRunner:
         """Define schedule for jobs."""
         logger.info("Setting up scheduled jobs...")
         
-        # Check missing timesheets every Monday at 9:00 AM
-        schedule.every().monday.at("09:00").do(self.monitor.check_missing_timesheets)
+        # Check missing timesheets every working day (Mon-Fri) at 6:00 PM
+        schedule.every().monday.at("18:00").do(self.monitor.check_missing_timesheets)
+        schedule.every().tuesday.at("18:00").do(self.monitor.check_missing_timesheets)
+        schedule.every().wednesday.at("18:00").do(self.monitor.check_missing_timesheets)
+        schedule.every().thursday.at("18:00").do(self.monitor.check_missing_timesheets)
+        schedule.every().friday.at("18:00").do(self.monitor.check_missing_timesheets)
         
         # Check project health daily at 10:00 AM
         schedule.every().day.at("10:00").do(self.monitor.check_project_health)

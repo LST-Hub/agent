@@ -4,36 +4,120 @@ Timesheet Repository implementation.
 
 from typing import List, Optional
 from datetime import date
+from sqlalchemy import text
 from database.repositories.base import BaseRepository
-from models.reporting import TimesheetEntry
+from models.schemas import Timesheet, TimesheetStatus, RetractStatus
 
-class TimesheetRepository(BaseRepository[TimesheetEntry]):
+class TimesheetRepository(BaseRepository[Timesheet]):
     """
-    Handles database operations for timesheets.
+    Handles database operations for timesheets using raw SQL.
     """
     
-    def get_by_id(self, id: int) -> Optional[TimesheetEntry]:
-        # Placeholder: returning None or mock data
+    def _map_row(self, row) -> Timesheet:
+        """Maps a database row to a Timesheet object."""
+        # Helper to safely map row attributes
+        return Timesheet(
+            globalId=row.globalId,
+            id=row.id,
+            date=row.date,
+            duration=row.duration,
+            description=row.description,
+            taskId=row.taskId,
+            projectId=row.projectId,
+            createdById=row.createdById,
+            approved=bool(row.approved),
+            approvedById=row.approvedById,
+            approvedAt=row.approvedAt,
+            rejected=bool(row.rejected),
+            rejectedById=row.rejectedById,
+            rejectedAt=row.rejectedAt,
+            rejectionNote=row.rejectionNote,
+            submittedForApproval=bool(row.submittedForApproval),
+            status=TimesheetStatus(row.status) if row.status else TimesheetStatus.DRAFT,
+            createdAt=row.createdAt,
+            updatedAt=row.updatedAt,
+            workspaceId=row.workspaceId,
+            ticket=row.ticket,
+            resourceAllocationId=row.resourceAllocationId,
+            retractApproval=bool(row.retractApproval),
+            retractReason=row.retractReason,
+            retractStatus=RetractStatus(row.retractStatus) if row.retractStatus else RetractStatus.NOT_SUBMITTED,
+            retractrejectionNote=row.retractrejectionNote
+        )
+
+    def get_by_id(self, id: int) -> Optional[Timesheet]:
+        query = text("SELECT * FROM Timesheet WHERE id = :id")
+        result = self.session.execute(query, {"id": id}).fetchone()
+        if result:
+            return self._map_row(result)
         return None
 
-    def get_all(self) -> List[TimesheetEntry]:
-        return []
+    def get_all(self) -> List[Timesheet]:
+        query = text("SELECT * FROM Timesheet")
+        result = self.session.execute(query).fetchall()
+        return [self._map_row(row) for row in result]
 
-    def get_missing_timesheets(self, start_date: date, end_date: date) -> List[int]:
+    def get_by_user_and_date(self, user_id: int, date_val: date) -> List[Timesheet]:
+        """Fetch timesheets for a specific user and date."""
+        query = text("SELECT * FROM Timesheet WHERE createdById = :user_id AND date = :date")
+        result = self.session.execute(query, {"user_id": user_id, "date": date_val}).fetchall()
+        return [self._map_row(row) for row in result]
+
+    def get_by_user_date_range(self, user_id: int, start_date: date, end_date: date) -> List[Timesheet]:
+        """Fetch timesheets for a specific user within a date range."""
+        query = text("SELECT * FROM Timesheet WHERE createdById = :user_id AND date >= :start_date AND date <= :end_date")
+        result = self.session.execute(query, {"user_id": user_id, "start_date": start_date, "end_date": end_date}).fetchall()
+        return [self._map_row(row) for row in result]
+
+    def get_by_date_range(self, start_date: date, end_date: date) -> List[Timesheet]:
+        """Fetch timesheets within a date range."""
+        query = text("SELECT * FROM Timesheet WHERE date >= :start_date AND date <= :end_date")
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        return [self._map_row(row) for row in result]
+
+    def get_pending_approvals(self, days_pending: int) -> List[Timesheet]:
+        """Fetch timesheets pending approval for more than X days."""
+        query = text("""
+            SELECT * FROM Timesheet 
+            WHERE status = 'Pending' 
+            AND approved = 0 
+            AND updatedAt < DATE_SUB(NOW(), INTERVAL :days DAY)
+        """)
+        result = self.session.execute(query, {"days": days_pending}).fetchall()
+        return [self._map_row(row) for row in result]
+
+    def get_rejected_no_update(self, days_since_rejection: int) -> List[Timesheet]:
+        """Fetch rejected timesheets not updated for X days."""
+        query = text("""
+            SELECT * FROM Timesheet 
+            WHERE status = 'Rejected' 
+            AND updatedAt < DATE_SUB(NOW(), INTERVAL :days DAY)
+        """)
+        result = self.session.execute(query, {"days": days_since_rejection}).fetchall()
+        return [self._map_row(row) for row in result]
+
+    def get_bad_descriptions(self, min_length: int) -> List[Timesheet]:
+        """Fetch timesheets with missing or short descriptions."""
+        query = text("""
+            SELECT * FROM Timesheet 
+            WHERE description IS NULL 
+            OR CHAR_LENGTH(description) < :min_length
+        """)
+        result = self.session.execute(query, {"min_length": min_length}).fetchall()
+        return [self._map_row(row) for row in result]
+
+    def get_missing_tickets(self) -> List[Timesheet]:
         """
-        Identifies resources who have NOT logged time in the given window.
-        
-        Args:
-            start_date: Period start
-            end_date: Period end
-            
-        Returns:
-            List of Resource IDs who are missing timesheets.
+        Fetch timesheets that are billable (via Project or Task) but have no ticket.
         """
-        # Placeholder SQL query logic
-        # SELECT resource_id FROM resources WHERE id NOT IN (SELECT resource_id FROM timesheets...)
-        return []
-        
-    def get_entries_for_period(self, start_date: date, end_date: date) -> List[TimesheetEntry]:
-        """Fetch all entries between two dates."""
-        return []
+        # Note: This query joins across tables, adhering to SQL isolation.
+        query = text("""
+            SELECT T.* 
+            FROM Timesheet T
+            JOIN Project P ON T.projectId = P.id
+            LEFT JOIN Task K ON T.taskId = K.id
+            WHERE (P.billable = 1 OR K.billable = 1)
+            AND (T.ticket IS NULL OR T.ticket = '')
+        """)
+        result = self.session.execute(query).fetchall()
+        return [self._map_row(row) for row in result]

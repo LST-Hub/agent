@@ -1,6 +1,8 @@
 import mysql.connector
 from mysql.connector import Error
 from urllib.parse import urlparse
+from dotenv import load_dotenv
+import os
 
 def create_connection(host_name, user_name, user_password, db_name=None):
     """
@@ -30,7 +32,8 @@ def create_connection(host_name, user_name, user_password, db_name=None):
     return connection
 
 if __name__ == "__main__":
-    DATABASE_URL = "mysql://nscruxco_ts_super_user:Tasksprint123@mi3-ss56.a2hosting.com:3306/nscruxco_tasksprint_mysql"
+    load_dotenv()
+    DATABASE_URL = os.getenv("DATABASE_URL")
 
     # Parse the database URL
     url = urlparse(DATABASE_URL)
@@ -44,8 +47,30 @@ if __name__ == "__main__":
     )
 
     if connection and connection.is_connected():
-        # Do something with the connection
-        # e.g., cursor = connection.cursor()
+        # Get columns from tables
+        cursor = connection.cursor()
+        
+        # Fetch user emails
+        print("\nFetching User emails...")
+        cursor.execute("SELECT id, name, email FROM User WHERE email IS NOT NULL AND email != ''")
+        users = cursor.fetchall()
+        
+        email_map = {}
+        for user_id, name, email in users:
+            email_map[str(user_id)] = email
+            
+        import json
+        output_file = 'data/office_emails.json'
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        with open(output_file, 'w') as f:
+            json.dump(email_map, f, indent=4)
+            
+        print(f"Successfully exported {len(email_map)} emails to {output_file}")
+        
+        cursor.close()
         
         # Close the connection when done
         connection.close()
