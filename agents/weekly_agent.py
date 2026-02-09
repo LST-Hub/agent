@@ -8,12 +8,20 @@ from database.connection import get_db_session
 from services.timesheet_service import TimesheetService
 from services.email_service import EmailService
 from utils.date_utils import get_current_date
+from utils.email_resolver import EmailResolver
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 class WeeklyAgent:
     def __init__(self):
         self.email_service = EmailService()
+        self.email_resolver = EmailResolver()
+        self.ignore_ids = settings.get_ignore_id_list()
+
+    def _should_ignore_user(self, user_id: int) -> bool:
+        """Check if user should be ignored based on ignore list."""
+        return user_id in self.ignore_ids
 
     def run(self):
         """
@@ -42,11 +50,25 @@ class WeeklyAgent:
     def _check_consistent_underlogging(self, service: TimesheetService, start_date: date, end_date: date):
         logger.info("Checking consistent under-logging...")
         underlogging_users = service.get_consistent_underlogging(start_date, end_date, threshold_days=3)
+        
         for user in underlogging_users:
+            # Skip ignored users
+            if self._should_ignore_user(user.id):
+                logger.debug(f"Skipping ignored user {user.id} - {user.email}")
+                continue
+                
             logger.info(f"User {user.email} consistently under-logged hours.")
-            # Notify PM Logic here
+            
+            # Resolve office email
+            user_email = self.email_resolver.get_office_email(user.id) or user.email
+            supervisor_email = None
+            if user.supervisorId and not self._should_ignore_user(user.supervisorId):
+                supervisor_email = self.email_resolver.get_office_email(user.supervisorId)
+            
+            # Notify User and Supervisor
             self.email_service.send_alert(
-                to_email=user.email,
+                to_email=user_email,
                 subject="Weekly Under-Logging Alert",
-                body=f"Hi {user.firstName}, you have consistently logged fewer hours this week."
+                body=f"Hi {user.firstName}, you have consistently logged fewer hours this week.",
+                cc_email=supervisor_email
             )

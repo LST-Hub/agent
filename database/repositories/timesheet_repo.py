@@ -121,3 +121,23 @@ class TimesheetRepository(BaseRepository[Timesheet]):
         """)
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
+
+    def get_missing_timesheets(self, start_date: date, end_date: date) -> List[int]:
+        """
+        Fetch user IDs who haven't logged any timesheets within the date range.
+        Only includes active users (workspaceId = 3 and active = 1).
+        Returns a list of user IDs (createdById).
+        """
+        query = text("""
+            SELECT DISTINCT u.id
+            FROM User u
+            LEFT JOIN Timesheet t ON u.id = t.createdById 
+                AND t.date >= :start_date 
+                AND t.date <= :end_date
+            WHERE t.id IS NULL
+            AND u.workspaceId = 3
+            AND u.active = 1
+        """)
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        return [row.id for row in result]
+

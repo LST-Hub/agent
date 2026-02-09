@@ -12,6 +12,7 @@ from database.repositories.project_repo import ProjectRepository
 from database.repositories.allocation_repo import ResourceAllocationRepository
 from database.repositories.task_repo import TaskRepository
 from utils.date_utils import is_weekend, is_holiday
+from config.settings import settings
 
 class TimesheetService:
     def __init__(self, session: Session):
@@ -21,6 +22,11 @@ class TimesheetService:
         self.project_repo = ProjectRepository(session)
         self.allocation_repo = ResourceAllocationRepository(session)
         self.task_repo = TaskRepository(session)
+        self.ignore_ids = settings.get_ignore_id_list()
+
+    def _filter_ignored_users(self, users: List[User]) -> List[User]:
+        """Filter out users whose IDs are in the ignore list."""
+        return [user for user in users if user.id not in self.ignore_ids]
 
     def get_missing_timesheet_users(self, target_date: date) -> List[User]:
         """
@@ -30,6 +36,7 @@ class TimesheetService:
             return []
 
         active_users = self.user_repo.get_active_users()
+        active_users = self._filter_ignored_users(active_users)
         missing_users = []
 
         for user in active_users:
@@ -59,6 +66,7 @@ class TimesheetService:
             return []
 
         active_users = self.user_repo.get_active_users()
+        active_users = self._filter_ignored_users(active_users)
         idle_records = []
 
         for user in active_users:
@@ -92,6 +100,7 @@ class TimesheetService:
             return []
 
         active_users = self.user_repo.get_active_users()
+        active_users = self._filter_ignored_users(active_users)
         overtime_records = []
 
         for user in active_users:
@@ -157,6 +166,7 @@ class TimesheetService:
         Identify users with idle_hours > 2 on >= 3 days in the period.
         """
         active_users = self.user_repo.get_active_users()
+        active_users = self._filter_ignored_users(active_users)
         underlogging_users = []
         
         # Calculate date range once
@@ -182,19 +192,19 @@ class TimesheetService:
                 
         return underlogging_users
 
-# from database.connection import db_manager
-# session = db_manager.get_session()
-# try:
-#         timesheet_service = TimesheetService(session)
-#         target_date = date(2026, 2, 6)
+from database.connection import db_manager
+session = db_manager.get_session()
+try:
+        timesheet_service = TimesheetService(session)
+        target_date = date(2026, 2, 6)
         
-#         missing_users = timesheet_service.get_missing_timesheet_users(target_date)
+        missing_users = timesheet_service.get_missing_timesheet_users(target_date)
         
-#         print(f"Missing timesheets for {target_date}:")
-#         for user in missing_users:
-#             print(f"  - {user.name} ({user.email})")
+        print(f"Missing timesheets for {target_date}:")
+        for user in missing_users:
+            print(f"  - {user.name} ({user.email})")
         
-#         print(f"\nTotal: {len(missing_users)} users")
+        print(f"\nTotal: {len(missing_users)} users")
         
-# finally:
-#     session.close()  
+finally:
+    session.close()

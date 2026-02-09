@@ -22,7 +22,7 @@ class EmailResolver:
 
     def _load_emails(self):
         """Loads email mapping from JSON file."""
-        file_path = os.path.join(os.getcwd(), 'data', 'office_emails.json')
+        file_path = os.path.join(os.getcwd(), 'data', 'active_emp.json')
         try:
             if os.path.exists(file_path):
                 with open(file_path, 'r') as f:

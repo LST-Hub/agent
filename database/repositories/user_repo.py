@@ -50,7 +50,11 @@ class UserRepository(BaseRepository[User]):
         return [self._map_row(row) for row in result]
 
     def get_active_users(self) -> List[User]:
-        """Fetch all active users."""
-        query = text("SELECT * FROM User WHERE active = 1 AND deleted = 0")
+        """Fetch all active users with workspaceId = 3 and active = 1."""
+        query = text("""
+            SELECT * FROM User 
+            WHERE workspaceId = 3 
+            AND active = 1
+        """)
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
