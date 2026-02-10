@@ -55,20 +55,20 @@ if __name__ == "__main__":
         cursor.execute("SELECT id, name, email FROM User WHERE workspaceId = 3 AND active = 1")
         users = cursor.fetchall()
         
-        # email_map = {}
-        # for user_id, name, email in users:
-        #     email_map[str(user_id)] = email
+        email_map = {}
+        for user_id, name, email in users:
+            email_map[str(user_id)] = email
             
-        # import json
-        # output_file = 'data/active_emp.json'
+        import json
+        output_file = 'data/active_emp.json'
         
-        # # Ensure directory exists
-        # os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
-        # with open(output_file, 'w') as f:
-        #     json.dump(email_map, f, indent=4)
+        with open(output_file, 'w') as f:
+            json.dump(email_map, f, indent=4)
             
-        # print(f"Successfully exported {len(email_map)} emails to {output_file}")
+        print(f"Successfully exported {len(email_map)} emails to {output_file}")
         
         cursor.close()
         

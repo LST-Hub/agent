@@ -44,14 +44,20 @@ class TimesheetService:
             
             # Missing if no timesheets found
             if not timesheets:
-                missing_users.append(user)
+                missing_users.append({
+                    "user": user,
+                    "missing_date": target_date
+                })
                 continue
             
             # Or if ALL timesheets for the day are 'Draft'
             # Assuming 'Draft' status implies not submitted
             all_draft = all(t.status.value == 'Draft' for t in timesheets)
             if all_draft:
-                missing_users.append(user)
+                missing_users.append({
+                    "user": user,
+                    "missing_date": target_date
+                })
         
         return missing_users
 
@@ -192,19 +198,19 @@ class TimesheetService:
                 
         return underlogging_users
 
-from database.connection import db_manager
-session = db_manager.get_session()
-try:
-        timesheet_service = TimesheetService(session)
-        target_date = date(2026, 2, 6)
+# from database.connection import db_manager
+# session = db_manager.get_session()
+# try:
+#         timesheet_service = TimesheetService(session)
+#         target_date = date(2026, 2, 6)
         
-        missing_users = timesheet_service.get_missing_timesheet_users(target_date)
+#         missing_users = timesheet_service.get_missing_timesheet_users(target_date)
         
-        print(f"Missing timesheets for {target_date}:")
-        for user in missing_users:
-            print(f"  - {user.name} ({user.email})")
+#         print(f"Missing timesheets for {target_date}:")
+#         for user in missing_users:
+#             print(f"  - {user.name} ({user.email})")
         
-        print(f"\nTotal: {len(missing_users)} users")
+#         print(f"\nTotal: {len(missing_users)} users")
         
-finally:
-    session.close()
+# finally:
+#     session.close()

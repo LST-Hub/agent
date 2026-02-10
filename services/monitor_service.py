@@ -38,7 +38,7 @@ class OperationsMonitor:
         user_repo = UserRepository(session)
         
         end_date = date.today()
-        start_date = date(2026, 2, 9) #end_date - timedelta(days=7)
+        start_date = end_date - timedelta(days=7)
         print(f"Checking for missing timesheets from {start_date} to {end_date}...")
         
         missing_resource_ids = timesheet_repo.get_missing_timesheets(start_date, end_date)

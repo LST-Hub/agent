@@ -40,13 +40,13 @@ class DatabaseConfig:
 @dataclass
 class SMTPConfig:
     """Email server configuration."""
-    service: str = field(default_factory=lambda: os.getenv("EMAIL_SERVICE", "smtp"))
-    host: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_HOST", "smtp.example.com"))
-    port: int = field(default_factory=lambda: int(os.getenv("EMAIL_SERVER_PORT", "587")))
-    secure: bool = field(default_factory=lambda: os.getenv("EMAIL_SERVER_SECURE", "true").lower() == "true")
-    user: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_USER", ""))
-    password: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_PASSWORD", ""))
-    from_email: str = field(default_factory=lambda: os.getenv("EMAIL_FROM", os.getenv("EMAIL_SERVER_USER", "")))
+    service: str = field(default_factory=lambda: os.getenv("EMAIL_SERVICE"))
+    host: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_HOST"))
+    port: int = field(default_factory=lambda: int(os.getenv("EMAIL_SERVER_PORT")))
+    secure: bool = field(default_factory=lambda: os.getenv("EMAIL_SERVER_SECURE"))
+    user: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_USER"))
+    password: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_PASSWORD"))
+    from_email: str = field(default_factory=lambda: os.getenv("EMAIL_FROM", os.getenv("EMAIL_SERVER_USER")))
 
 @dataclass
 class AIConfig:
@@ -66,7 +66,14 @@ class AppSettings:
         """Parse comma-separated ignore IDs into a list of integers."""
         if not self.ignore_ids:
             return []
-        return [int(id.strip()) for id in self.ignore_ids.split(",") if id.strip().isdigit()]
+
+        result = []
+        for x in self.ignore_ids.split(","):
+            try:
+                result.append(int(x.strip()))
+            except ValueError:
+                pass
+        return result
 
 # Singleton instance
 settings = AppSettings()

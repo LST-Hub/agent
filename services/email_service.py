@@ -50,20 +50,29 @@ class EmailService:
 
         try:
             if self.secure:
-                # Use TLS/STARTTLS for secure connection
-                with smtplib.SMTP(self.host, self.port) as server:
-                    server.starttls()
-                    server.login(self.user, self.password)  # Still authenticate with user
-                    server.send_message(msg, to_addrs=recipients)
+                # For SSL (port 465)
+                if self.port == 465:
+                    with smtplib.SMTP_SSL(self.host, self.port) as server:
+                        server.login(self.user, self.password)
+                        server.send_message(msg, to_addrs=recipients)
+                # For STARTTLS (port 587 or 25)
+                else:
+                    with smtplib.SMTP(self.host, self.port, timeout=30) as server:
+                        server.ehlo()
+                        server.starttls()
+                        server.ehlo()
+                        server.login(self.user, self.password)
+                        server.send_message(msg, to_addrs=recipients)
             else:
-                # Use plain SMTP without encryption
-                with smtplib.SMTP(self.host, self.port) as server:
+                # Plain SMTP without encryption
+                with smtplib.SMTP(self.host, self.port, timeout=30) as server:
+                    server.ehlo()
                     server.login(self.user, self.password)
                     server.send_message(msg, to_addrs=recipients)
             
             logger.info(f"Email sent to {to_email} (CC: {cc_email}): {subject}")
             return True
         except Exception as e:
-            logger.error(f"Failed to send email: {e}")
+            logger.error(f"Failed to send email to {to_email}: {e}", exc_info=True)
             return False
 

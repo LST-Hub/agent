@@ -10,6 +10,7 @@ from services.email_service import EmailService
 from utils.date_utils import get_current_date
 from utils.email_resolver import EmailResolver
 from config.settings import settings
+from utils.date_utils import is_weekend, is_holiday
 
 logger = logging.getLogger(__name__)
 
@@ -41,55 +42,106 @@ class DailyAgent:
             self._check_missing_timesheets(service, current_date)
             
             # 2. Idle Time Detection
-            self._check_idle_time(service, current_date)
+            # self._check_idle_time(service, current_date)
             
-            # 3. Overtime Detection
-            self._check_overtime(service, current_date)
+            # # 3. Overtime Detection
+            # self._check_overtime(service, current_date)
             
-            # 4. Pending Approval Reminder
-            self._check_pending_approvals(service)
+            # # 4. Pending Approval Reminder
+            # self._check_pending_approvals(service)
             
-            # 5. Rejected Timesheet Follow-up
-            self._check_rejected_followup(service)
+            # # 5. Rejected Timesheet Follow-up
+            # self._check_rejected_followup(service)
             
-            # 6. Missing or Poor Description Check
-            self._check_bad_descriptions(service)
+            # # 6. Missing or Poor Description Check
+            # self._check_bad_descriptions(service)
             
-            # 7. Missing Ticket for Billable Work
-            self._check_missing_tickets(service)
+            # # 7. Missing Ticket for Billable Work
+            # self._check_missing_tickets(service)
             
-            # 8. Allocation vs Actual Mismatch
-            self._check_allocation_mismatch(service, current_date)
+            # # 8. Allocation vs Actual Mismatch
+            # self._check_allocation_mismatch(service, current_date)
 
         finally:
             session.close()
             logger.info("Daily Agent execution finished.")
 
-    def _check_missing_timesheets(self, service: TimesheetService, target_date: date):
-        logger.info("Checking missing timesheets...")
-        missing_users = service.get_missing_timesheet_users(target_date)
-        print(f"missing users: {missing_users}")
+    def _check_missing_timesheets(self, service: TimesheetService, current_date: date, days_back: int = 30):
+        """
+        Check for missing timesheets for the last N days (excluding weekends/holidays).
         
-        for user in missing_users:
-            # Skip ignored users
-            if self._should_ignore_user(user.id):
-                logger.debug(f"Skipping ignored user {user.id} - {user.email}")
-                continue
+        Args:
+            service: TimesheetService instance
+            current_date: Current date
+            days_back: Number of days to check backwards
+        """
+        logger.info(f"Checking missing timesheets for last {days_back} days...")
+        
+        # Generate date range (excluding today, checking previous days)
+        dates_to_check = []
+        for i in range(1, days_back + 1):
+            check_date = current_date - timedelta(days=i)
+            # Skip weekends and holidays
+            if not is_weekend(check_date) and not is_holiday(check_date):
+                dates_to_check.append(check_date)
+        
+        # Dictionary to collect missing dates per user
+        # Format: {user_id: {'user': User, 'missing_dates': [date1, date2, ...]}}
+        user_missing_dates = {}
+        
+        # Check each date
+        for target_date in dates_to_check:
+            missing_records = service.get_missing_timesheet_users(target_date)
+            
+            for record in missing_records:
+                user = record['user']
+                missing_date = record['missing_date']
                 
-            logger.info(f"User {user.email} missing timesheet.")
+                # Skip ignored users
+                if self._should_ignore_user(user.id):
+                    logger.debug(f"Skipping ignored user {user.id} - {user.email}")
+                    continue
+                
+                # Add to the dictionary
+                if user.id not in user_missing_dates:
+                    user_missing_dates[user.id] = {
+                        'user': user,
+                        'missing_dates': []
+                    }
+                user_missing_dates[user.id]['missing_dates'].append(missing_date)
+        
+        # Now send one email per user with all their missing dates
+        for user_id, data in user_missing_dates.items():
+            user = data['user']
+            missing_dates = sorted(data['missing_dates'])  # Sort dates chronologically
+            
+            logger.info(f"User {user.email} missing timesheets for {len(missing_dates)} dates.")
             
             # Resolve office emails
             user_email = self.email_resolver.get_office_email(user.id) or user.email
+            print(f"User {user.id} ({user.email}): Missing timesheets for {len(missing_dates)} dates: {missing_dates}")
+            
             supervisor_email = None
             if user.supervisorId and not self._should_ignore_user(user.supervisorId):
                 supervisor_email = self.email_resolver.get_office_email(user.supervisorId)
             
-            # Send alert
+            # Format the dates nicely
+            if len(missing_dates) == 1:
+                dates_str = str(missing_dates[0])
+                subject = "Missing Timesheet Reminder"
+                body = f"Hi {user.firstName}, please submit your timesheet for {dates_str}."
+            else:
+                dates_str = ", ".join(str(d) for d in missing_dates)
+                subject = "Missing Timesheets Reminder"
+                body = f"Hi {user.firstName}, please submit your timesheets for the following dates: {dates_str}."
+                #logger.debug(f"Email body for user {user.email}: {body}")
+            
+            # Send consolidated alert
             # self.email_service.send_alert(
             #     to_email=user_email,
-            #     subject="Missing Timesheet Reminder",
-            #     body=f"Hi {user.firstName}, please submit your timesheet for {target_date}.",
-            #     cc_email=supervisor_email
+            #     subject=subject,
+            #     body=body,
+            #     #cc_email=supervisor_email
             # )
 
     # def _check_idle_time(self, service: TimesheetService, target_date: date):
@@ -191,3 +243,7 @@ class DailyAgent:
     #             logger.debug(f"Skipping ignored user {user.id} - {user.email}")
     #             continue
     #         # TODO: Notify PM
+
+
+obj = DailyAgent()
+obj.run()
