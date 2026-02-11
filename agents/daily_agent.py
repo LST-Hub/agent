@@ -11,6 +11,7 @@ from utils.date_utils import get_current_date
 from utils.email_resolver import EmailResolver
 from config.settings import settings
 from utils.date_utils import is_weekend, is_holiday
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -69,24 +70,18 @@ class DailyAgent:
     def _check_missing_timesheets(self, service: TimesheetService, current_date: date, days_back: int = 30):
         """
         Check for missing timesheets for the last N days (excluding weekends/holidays).
-        
-        Args:
-            service: TimesheetService instance
-            current_date: Current date
-            days_back: Number of days to check backwards
+        Send notifications to users and PMs.
         """
         logger.info(f"Checking missing timesheets for last {days_back} days...")
         
-        # Generate date range (excluding today, checking previous days)
+        # Generate date range
         dates_to_check = []
         for i in range(1, days_back + 1):
             check_date = current_date - timedelta(days=i)
-            # Skip weekends and holidays
             if not is_weekend(check_date) and not is_holiday(check_date):
                 dates_to_check.append(check_date)
         
-        # Dictionary to collect missing dates per user
-        # Format: {user_id: {'user': User, 'missing_dates': [date1, date2, ...]}}
+        # Collect missing dates per user
         user_missing_dates = {}
         
         # Check each date
@@ -97,12 +92,10 @@ class DailyAgent:
                 user = record['user']
                 missing_date = record['missing_date']
                 
-                # Skip ignored users
                 if self._should_ignore_user(user.id):
                     logger.debug(f"Skipping ignored user {user.id} - {user.email}")
                     continue
                 
-                # Add to the dictionary
                 if user.id not in user_missing_dates:
                     user_missing_dates[user.id] = {
                         'user': user,
@@ -110,14 +103,13 @@ class DailyAgent:
                     }
                 user_missing_dates[user.id]['missing_dates'].append(missing_date)
         
-        # Now send one email per user with all their missing dates
+        # Send emails to users
         for user_id, data in user_missing_dates.items():
             user = data['user']
-            missing_dates = sorted(data['missing_dates'])  # Sort dates chronologically
+            missing_dates = sorted(data['missing_dates'])
             
             logger.info(f"User {user.email} missing timesheets for {len(missing_dates)} dates.")
             
-            # Resolve office emails
             user_email = self.email_resolver.get_office_email(user.id) or user.email
             print(f"User {user.id} ({user.email}): Missing timesheets for {len(missing_dates)} dates: {missing_dates}")
             
@@ -125,7 +117,6 @@ class DailyAgent:
             if user.supervisorId and not self._should_ignore_user(user.supervisorId):
                 supervisor_email = self.email_resolver.get_office_email(user.supervisorId)
             
-            # Format the dates nicely
             if len(missing_dates) == 1:
                 dates_str = str(missing_dates[0])
                 subject = "Missing Timesheet Reminder"
@@ -134,15 +125,17 @@ class DailyAgent:
                 dates_str = ", ".join(str(d) for d in missing_dates)
                 subject = "Missing Timesheets Reminder"
                 body = f"Hi {user.firstName}, please submit your timesheets for the following dates: {dates_str}."
-                #logger.debug(f"Email body for user {user.email}: {body}")
             
-            # Send consolidated alert
+            # Uncomment to send email
             # self.email_service.send_alert(
             #     to_email=user_email,
             #     subject=subject,
             #     body=body,
-            #     #cc_email=supervisor_email
+            #     cc_email=supervisor_email
             # )
+        
+        # Send notifications to PMs
+        # self._notify_pms_missing_timesheets(service, dates_to_check)
 
     # def _check_idle_time(self, service: TimesheetService, target_date: date):
     #     logger.info("Checking idle time...")
@@ -243,7 +236,78 @@ class DailyAgent:
     #             logger.debug(f"Skipping ignored user {user.id} - {user.email}")
     #             continue
     #         # TODO: Notify PM
-
+    
+    # def _notify_pms_missing_timesheets(self, service: TimesheetService, dates_to_check: List[date]):
+    #     """
+    #     Send consolidated notifications to PMs about missing timesheets in their projects.
+    #     """
+    #     logger.info("Notifying PMs about missing timesheets...")
+        
+    #     # Collect PM notifications across all dates
+    #     pm_consolidated = {}
+        
+    #     for target_date in dates_to_check:
+    #         pm_notifications = service.get_missing_timesheets_by_pm(target_date)
+            
+    #         for pm_id, data in pm_notifications.items():
+    #             if pm_id not in pm_consolidated:
+    #                 pm_consolidated[pm_id] = {
+    #                     'pm': data['pm'],
+    #                     'projects': {}
+    #                 }
+                
+    #             # Merge project data
+    #             for project_id, project_data in data['projects'].items():
+    #                 if project_id not in pm_consolidated[pm_id]['projects']:
+    #                     pm_consolidated[pm_id]['projects'][project_id] = {
+    #                         'project': project_data['project'],
+    #                         'users_dates': {}
+    #                     }
+                    
+    #                 # Track missing dates per user
+    #                 for user in project_data['missing_users']:
+    #                     if user.id not in pm_consolidated[pm_id]['projects'][project_id]['users_dates']:
+    #                         pm_consolidated[pm_id]['projects'][project_id]['users_dates'][user.id] = {
+    #                             'user': user,
+    #                             'dates': []
+    #                         }
+    #                     pm_consolidated[pm_id]['projects'][project_id]['users_dates'][user.id]['dates'].append(target_date)
+        
+    #     # Send email to each PM
+    #     for pm_id, data in pm_consolidated.items():
+    #         pm = data['pm']
+    #         pm_email = self.email_resolver.get_office_email(pm_id) or pm.email
+            
+    #         # Build email body
+    #         body_lines = [f"Hi {pm.firstName},\n"]
+    #         body_lines.append("The following team members in your projects have missing timesheets:\n")
+            
+    #         for project_id, project_data in data['projects'].items():
+    #             project = project_data['project']
+    #             body_lines.append(f"\nProject: {project.name}")
+                
+    #             for user_id, user_data in project_data['users_dates'].items():
+    #                 user = user_data['user']
+    #                 dates = sorted(user_data['dates'])
+    #                 dates_str = ", ".join(str(d) for d in dates)
+    #                 body_lines.append(f"  - {user.name} ({user.email}): {dates_str}")
+            
+    #         body_lines.append("\nPlease follow up with your team members.")
+            
+    #         body = "\n".join(body_lines)
+            
+    #         logger.info(f"Sending PM notification to {pm.email} for {len(data['projects'])} projects")
+    #         print(f"\n{'='*80}")
+    #         print(f"PM: {pm.name} ({pm.email})")
+    #         print(body)
+    #         print(f"{'='*80}\n")
+            
+            # Uncomment to send email
+            # self.email_service.send_alert(
+            #     to_email=pm_email,
+            #     subject="Missing Timesheets in Your Projects",
+            #     body=body
+            # )
 
 obj = DailyAgent()
 obj.run()

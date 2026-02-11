@@ -4,6 +4,7 @@ Email Notification Service.
 
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from config.settings import settings
 import logging
 
@@ -23,32 +24,37 @@ class EmailService:
         self.password = settings.smtp.password
         self.from_email = settings.smtp.from_email  # Add this line
 
-    def send_alert(self, to_email: str, subject: str, body: str, cc_email: str = None) -> bool:
+    def send_alert(self, to_email: str, subject: str, body: str, cc_email: str = None, is_html: bool = False) -> bool:
         """
-        Sends an alert email.
+        Sends an email alert with optional CC.
         
         Args:
-            to_email: Recipient address
+            to_email: Recipient email address
             subject: Email subject
-            body: Email body
-            cc_email: Optional CC address
-            
-        Returns:
-            bool: True if sent successfully, False otherwise.
+            body: Email body text or HTML
+            cc_email: Optional CC email address
+            is_html: If True, body is treated as HTML content
         """
-        msg = MIMEText(body)
-        msg['Subject'] = f"[AI Ops Alert] {subject}"
-        msg['From'] = self.from_email
-        msg['To'] = to_email
-        if cc_email:
-            msg['Cc'] = cc_email
-
-        # Recipients list needs to include To and CC for the envelope
-        recipients = [to_email]
-        if cc_email:
-            recipients.append(cc_email)
-
         try:
+            msg = MIMEMultipart()
+            msg['From'] = self.from_email
+            msg['To'] = to_email
+            msg['Subject'] = subject
+            
+            if cc_email:
+                msg['Cc'] = cc_email
+            
+            # Attach body as plain text or HTML
+            if is_html:
+                msg.attach(MIMEText(body, 'html'))
+            else:
+                msg.attach(MIMEText(body, 'plain'))
+            
+            # Recipients list needs to include To and CC for the envelope
+            recipients = [to_email]
+            if cc_email:
+                recipients.append(cc_email)
+
             if self.secure:
                 # For SSL (port 465)
                 if self.port == 465:

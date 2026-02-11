@@ -11,6 +11,7 @@ from database.repositories.user_repo import UserRepository
 from database.repositories.project_repo import ProjectRepository
 from database.repositories.allocation_repo import ResourceAllocationRepository
 from database.repositories.task_repo import TaskRepository
+from database.repositories.projectuser_repo import ProjectUserRepository
 from utils.date_utils import is_weekend, is_holiday
 from config.settings import settings
 
@@ -22,6 +23,7 @@ class TimesheetService:
         self.project_repo = ProjectRepository(session)
         self.allocation_repo = ResourceAllocationRepository(session)
         self.task_repo = TaskRepository(session)
+        self.project_user_repo = ProjectUserRepository(session)
         self.ignore_ids = settings.get_ignore_id_list()
 
     def _filter_ignored_users(self, users: List[User]) -> List[User]:
@@ -197,6 +199,72 @@ class TimesheetService:
                 underlogging_users.append(user)
                 
         return underlogging_users
+
+    def get_missing_timesheets_by_pm(self, target_date: date) -> Dict[int, Dict]:
+        """
+        Group missing timesheet users by their Project Managers.
+        
+        Returns:
+            Dict with PM ID as key and value containing:
+            {
+                'pm': User object,
+                'projects': {
+                    project_id: {
+                        'project': Project object,
+                        'missing_users': [User objects]
+                    }
+                }
+            }
+        """
+        if is_weekend(target_date) or is_holiday(target_date):
+            return {}
+
+        # Get users with missing timesheets
+        missing_records = self.get_missing_timesheet_users(target_date)
+        
+        # Group by PM
+        pm_notifications = {}
+        
+        for record in missing_records:
+            user = record['user']
+            
+            # Get projects for this user
+            project_ids = self.project_user_repo.get_projects_by_user(user.id)
+            
+            for project_id in project_ids:
+                project = self.project_repo.get_by_id(project_id)
+                
+                if not project or not project.pmId:
+                    continue
+                
+                pm_id = project.pmId
+                
+                # Skip if PM is in ignore list
+                if pm_id in self.ignore_ids:
+                    continue
+                
+                # Initialize PM entry if not exists
+                if pm_id not in pm_notifications:
+                    pm = self.user_repo.get_by_id(pm_id)
+                    if not pm:
+                        continue
+                    pm_notifications[pm_id] = {
+                        'pm': pm,
+                        'projects': {}
+                    }
+                
+                # Initialize project entry if not exists
+                if project_id not in pm_notifications[pm_id]['projects']:
+                    pm_notifications[pm_id]['projects'][project_id] = {
+                        'project': project,
+                        'missing_users': []
+                    }
+                
+                # Add user to missing list for this project
+                if user not in pm_notifications[pm_id]['projects'][project_id]['missing_users']:
+                    pm_notifications[pm_id]['projects'][project_id]['missing_users'].append(user)
+        
+        return pm_notifications
 
 # from database.connection import db_manager
 # session = db_manager.get_session()

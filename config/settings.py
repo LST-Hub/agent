@@ -61,6 +61,7 @@ class AppSettings:
     ai: AIConfig = field(default_factory=AIConfig)
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     ignore_ids: str = field(default_factory=lambda: os.getenv("IGNORE_ID", ""))
+    pm_email: str = field(default_factory=lambda: os.getenv("PM_EMAIL", ""))
     
     def get_ignore_id_list(self) -> List[int]:
         """Parse comma-separated ignore IDs into a list of integers."""
