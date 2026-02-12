@@ -14,4 +14,8 @@ dependencies = [
     "openai>=1.0.0",
     "psycopg2-binary>=2.9.0",
     "pymysql",
+    "requests>=2.32.5",
+    "pandas>=3.0.0",
+    "pydantic-settings>=2.12.0",
+    "openpyxl>=3.1.5",
 ]

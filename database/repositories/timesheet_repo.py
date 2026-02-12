@@ -3,7 +3,7 @@ Timesheet Repository implementation.
 """
 
 from typing import List, Optional
-from datetime import date
+from datetime import date, datetime
 from sqlalchemy import text
 from database.repositories.base import BaseRepository
 from models.schemas import Timesheet, TimesheetStatus, RetractStatus
@@ -141,3 +141,55 @@ class TimesheetRepository(BaseRepository[Timesheet]):
         result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
         return [row.id for row in result]
 
+    def get_weekly_timesheets_for_report(self, start_date: date, end_date: date) -> List[dict]:
+        """
+        Fetch timesheets for weekly report with specific columns.
+        Returns raw data as dictionaries for Excel export.
+        """
+        query = text("""
+            SELECT 
+                t.date,
+                t.duration,
+                t.description,
+                t.taskId,
+                t.projectId,
+                t.approved,
+                t.approvedById,
+                t.rejected,
+                t.rejectedById,
+                t.rejectedAt,
+                t.rejectionNote,
+                t.status,
+                u.name as userName,
+                u.email as userEmail,
+                p.name as projectName
+            FROM Timesheet t
+            LEFT JOIN User u ON t.createdById = u.id
+            LEFT JOIN Project p ON t.projectId = p.id
+            WHERE t.date >= :start_date 
+            AND t.date <= :end_date
+            ORDER BY t.date, u.name
+        """)
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        
+        # Convert to list of dictionaries
+        return [
+            {
+                "date": row.date,
+                "duration": row.duration,
+                "description": row.description,
+                "taskId": row.taskId,
+                "projectId": row.projectId,
+                "approved": row.approved,
+                "approvedById": row.approvedById,
+                "rejected": row.rejected,
+                "rejectedById": row.rejectedById,
+                "rejectedAt": row.rejectedAt,
+                "rejectionNote": row.rejectionNote,
+                "status": row.status,
+                "userName": row.userName,
+                "userEmail": row.userEmail,
+                "projectName": row.projectName
+            }
+            for row in result
+        ]

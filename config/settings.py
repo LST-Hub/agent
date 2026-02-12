@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 from urllib.parse import urlparse
 from typing import List
+#from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 # Load environment variables from .env file
 load_dotenv()
@@ -62,6 +64,13 @@ class AppSettings:
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     ignore_ids: str = field(default_factory=lambda: os.getenv("IGNORE_ID", ""))
     pm_email: str = field(default_factory=lambda: os.getenv("PM_EMAIL", ""))
+    tenant_id: str = field(default_factory=lambda: os.getenv("TENANT_ID", ""))
+    client_id: str = field(default_factory=lambda: os.getenv("CLIENT_ID", ""))
+    client_secret: str = field(default_factory=lambda: os.getenv("CLIENT_SECRET", ""))
+    site_id: str = field(default_factory=lambda: os.getenv("SITE_ID", ""))
+    drive_id: str = field(default_factory=lambda: os.getenv("DRIVE_ID", ""))
+    file_name: str = field(default_factory=lambda: os.getenv("FILE_NAME", ""))
+    table_name: str = field(default_factory=lambda: os.getenv("TABLE_NAME", ""))
     
     def get_ignore_id_list(self) -> List[int]:
         """Parse comma-separated ignore IDs into a list of integers."""
@@ -75,6 +84,7 @@ class AppSettings:
             except ValueError:
                 pass
         return result
+
 
 # Singleton instance
 settings = AppSettings()
