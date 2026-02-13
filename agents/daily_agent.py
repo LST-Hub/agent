@@ -127,12 +127,12 @@ class DailyAgent:
                 body = f"Hi {user.firstName}, please submit your timesheets for the following dates: {dates_str}."
             
             # Uncomment to send email
-            # self.email_service.send_alert(
-            #     to_email=user_email,
-            #     subject=subject,
-            #     body=body,
-            #     cc_email=supervisor_email
-            # )
+            self.email_service.send_alert(
+                to_email=user_email,
+                subject=subject,
+                body=body,
+                cc_email=supervisor_email
+            )
         
         # Send notifications to PMs
         # self._notify_pms_missing_timesheets(service, dates_to_check)
@@ -308,6 +308,5 @@ class DailyAgent:
             #     subject="Missing Timesheets in Your Projects",
             #     body=body
             # )
-
 obj = DailyAgent()
 obj.run()

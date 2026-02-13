@@ -1,0 +1,102 @@
+services:
+  # Daily Agent - Runs every day at 9 PM IST (3:30 PM UTC)
+  - type: cron
+    name: timesheet-daily-agent
+    env: python
+    runtime: python-3.11
+    schedule: "30 15 * * *"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py daily"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_USERNAME
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: PM_EMAIL
+        sync: false
+      - key: IGNORE_IDS
+        sync: false
+
+  # Weekly Agent - Runs Wednesday at 6 PM IST (12:30 PM UTC)
+  - type: cron
+    name: timesheet-weekly-agent-wed
+    env: python
+    runtime: python-3.11
+    schedule: "30 12 * * 3"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py weekly"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_USERNAME
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: PM_EMAIL
+        sync: false
+      - key: IGNORE_IDS
+        sync: false
+
+  # Weekly Agent - Runs Friday at 6 PM IST (12:30 PM UTC)
+  - type: cron
+    name: timesheet-weekly-agent-fri
+    env: python
+    runtime: python-3.11
+    schedule: "30 12 * * 5"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py weekly"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_USERNAME
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: PM_EMAIL
+        sync: false
+      - key: IGNORE_IDS
+        sync: false
+
+  # Weekly Report Agent - Runs Monday at 9 PM IST (3:30 PM UTC)
+  - type: cron
+    name: timesheet-weekly-report-agent
+    env: python
+    runtime: python-3.11
+    schedule: "30 15 * * 1"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py weekly-report"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_USERNAME
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: PM_EMAIL
+        sync: false
+      - key: IGNORE_IDS
+        sync: false
+      - key: SHAREPOINT_SITE_URL
+        sync: false
+      - key: SHAREPOINT_CLIENT_ID
+        sync: false
+      - key: SHAREPOINT_CLIENT_SECRET
+        sync: false

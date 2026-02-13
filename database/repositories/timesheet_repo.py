@@ -152,44 +152,71 @@ class TimesheetRepository(BaseRepository[Timesheet]):
                 t.duration,
                 t.description,
                 t.taskId,
+                task.name AS taskName,
                 t.projectId,
+                project.name AS projectName,
                 t.approved,
                 t.approvedById,
+                approver.name AS approvedByName,
                 t.rejected,
                 t.rejectedById,
+                rejecter.name AS rejectedByName,
                 t.rejectedAt,
                 t.rejectionNote,
                 t.status,
-                u.name as userName,
-                u.email as userEmail,
-                p.name as projectName
+                t.createdById,
+                creator.name AS userName
             FROM Timesheet t
-            LEFT JOIN User u ON t.createdById = u.id
-            LEFT JOIN Project p ON t.projectId = p.id
-            WHERE t.date >= :start_date 
-            AND t.date <= :end_date
-            ORDER BY t.date, u.name
+            LEFT JOIN Task task ON t.taskId = task.id AND task.workspaceId = 3
+            LEFT JOIN Project project ON t.projectId = project.id AND project.workspaceId = 3
+            LEFT JOIN User creator ON t.createdById = creator.id
+            LEFT JOIN User approver ON t.approvedById = approver.id
+            LEFT JOIN User rejecter ON t.rejectedById = rejecter.id
+            WHERE t.date >= :start_date
+            AND t.date < :end_date
+            AND creator.workspaceId = 3
+            ORDER BY t.date
         """)
         result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
         
-        # Convert to list of dictionaries
+        def format_duration(seconds):
+            """Convert seconds to human-readable format (e.g., '8 hrs', '30 mins', '2 hrs 15 mins')"""
+            hours = seconds / 3600
+            
+            if hours >= 1:
+                full_hours = int(hours)
+                remaining_minutes = int((hours - full_hours) * 60)
+                
+                if remaining_minutes > 0:
+                    return f"{full_hours} hrs {remaining_minutes} mins"
+                else:
+                    return f"{full_hours} hrs"
+            else:
+                minutes = int(seconds / 60)
+                return f"{minutes} mins"
+            # Convert to list of dictionaries
+
         return [
             {
                 "date": row.date,
-                "duration": row.duration,
+                "userName": row.userName,
+                "duration": format_duration(row.duration),
                 "description": row.description,
-                "taskId": row.taskId,
-                "projectId": row.projectId,
+                #"taskId": row.taskId,
+                "taskName": row.taskName,
+                #"projectId": row.projectId,
+                "projectName": row.projectName,
                 "approved": row.approved,
-                "approvedById": row.approvedById,
+                #"approvedById": row.approvedById,
+                "approvedByName": row.approvedByName,
                 "rejected": row.rejected,
-                "rejectedById": row.rejectedById,
+                #"rejectedById": row.rejectedById,
+                "rejectedByName": row.rejectedByName,
                 "rejectedAt": row.rejectedAt,
                 "rejectionNote": row.rejectionNote,
                 "status": row.status,
-                "userName": row.userName,
-                "userEmail": row.userEmail,
-                "projectName": row.projectName
+                #"userId": row.createdById,
+                
             }
             for row in result
         ]
