@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 class WeeklyReportAgent:
     def __init__(self):
         self.email_service = EmailService()
+        self.pm_email = settings.get_pm_email()
     
     def run(self):
         """Run on Friday to generate reports and send to PM."""
@@ -55,13 +56,12 @@ class WeeklyReportAgent:
     def send_report_email(self, file_url: str, week_start: datetime):
         """Send report email to PM with Excel file link."""
         week_end = week_start + timedelta(days=6)
-        pm_email = settings.pm_email
         
-        if not pm_email:
+        if not self.pm_email:
             logger.error("PM_EMAIL not configured in settings!")
             raise ValueError("PM_EMAIL environment variable is not set")
         
-        logger.info(f"Preparing email for PM: {pm_email}")
+        logger.info(f"Preparing email for PM: {', '.join(self.pm_email)}")
         
         subject = f"Weekly Timesheet Report - {week_start.strftime('%Y-W%U')}"
         
@@ -92,18 +92,18 @@ class WeeklyReportAgent:
         </html>
         """
         
-        logger.info(f"Sending email to {pm_email}...")
+        logger.info(f"Sending email to {', '.join(self.pm_email)}...")
         success = self.email_service.send_alert(
-            to_email=pm_email,
+            to_email=self.pm_email,
             subject=subject,
             body=body,
             is_html=True
         )
         
         if success:
-            logger.info(f"Email sent successfully to {pm_email}")
+            logger.info(f"Email sent successfully to {', '.join(self.pm_email)}")
         else:
-            logger.error(f"Failed to send email to {pm_email}")
+            logger.error(f"Failed to send email to {', '.join(self.pm_email)}")
             raise Exception("Email sending failed")
 
 # REMOVE THESE LINES - Run via main.py instead

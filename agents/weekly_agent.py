@@ -23,7 +23,7 @@ class WeeklyAgent:
         self.email_service = EmailService()
         self.email_resolver = EmailResolver()
         self.ignore_ids = settings.get_ignore_id_list()
-        self.pm_email = settings.pm_email  # PM email from config
+        self.pm_email = settings.get_pm_email()  # PM email from config
  
     def _should_ignore_user(self, user_id: int) -> bool:
         """Check if user should be ignored based on ignore list."""

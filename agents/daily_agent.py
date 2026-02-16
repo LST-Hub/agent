@@ -12,6 +12,8 @@ from utils.email_resolver import EmailResolver
 from config.settings import settings
 from utils.date_utils import is_weekend, is_holiday
 from typing import List
+import json
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,29 @@ class DailyAgent:
         self.email_service = EmailService()
         self.email_resolver = EmailResolver()
         self.ignore_ids = settings.get_ignore_id_list()
+        self.active_emp_emails = self._load_active_emp_emails()
+
+    def _load_active_emp_emails(self) -> dict:
+        """Load email mappings from active_emp.json file."""
+        try:
+            file_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'active_emp.json')
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+                # Convert string keys to integers
+                return {int(k): v for k, v in data.items()}
+        except Exception as e:
+            logger.error(f"Failed to load active_emp.json: {e}")
+            return {}
+
+    def _get_user_email(self, user_id: int, fallback_email: str) -> str:
+        """Get user email from active_emp.json, fallback to database email."""
+        email = self.active_emp_emails.get(user_id)
+        if email:
+            logger.debug(f"Using email from active_emp.json for user {user_id}: {email}")
+            return email
+        else:
+            logger.debug(f"Using fallback email for user {user_id}: {fallback_email}")
+            return fallback_email
 
     def _should_ignore_user(self, user_id: int) -> bool:
         """Check if user should be ignored based on ignore list."""
@@ -110,12 +135,15 @@ class DailyAgent:
             
             logger.info(f"User {user.email} missing timesheets for {len(missing_dates)} dates.")
             
-            user_email = self.email_resolver.get_office_email(user.id) or user.email
-            print(f"User {user.id} ({user.email}): Missing timesheets for {len(missing_dates)} dates: {missing_dates}")
+            # Get email from active_emp.json instead of email_resolver
+            user_email = self._get_user_email(user.id, user.email)
+            print(f"User {user.id} ({user_email}): Missing timesheets for {len(missing_dates)} dates: {missing_dates}")
             
+            # Get supervisor email from active_emp.json as well
             supervisor_email = None
             if user.supervisorId and not self._should_ignore_user(user.supervisorId):
-                supervisor_email = self.email_resolver.get_office_email(user.supervisorId)
+                supervisor_db_email = self.email_resolver.get_office_email(user.supervisorId)
+                supervisor_email = self._get_user_email(user.supervisorId, supervisor_db_email)
             
             if len(missing_dates) == 1:
                 dates_str = str(missing_dates[0])

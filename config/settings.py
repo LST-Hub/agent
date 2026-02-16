@@ -84,6 +84,13 @@ class AppSettings:
             except ValueError:
                 pass
         return result
+    
+    def get_pm_email(self) -> List[str]:
+        """Parse comma-separated PM emails into a list of strings."""
+        if not self.pm_email:
+            return []
+        
+        return [email.strip() for email in self.pm_email.split(",") if email.strip()]
 
 
 # Singleton instance
