@@ -19,3 +19,12 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "openpyxl>=3.1.5",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent*", "agents*", "models*", "services*", "database*", "config*", "scheduler*", "utils*", "data*"]
+exclude = ["tests*", "docs*"]
