@@ -5,7 +5,7 @@ services:
     env: python
     runtime: python-3.11
     schedule: "30 15 * * *"
-    buildCommand: "pip install -r requirements.txt"
+    buildCommand: "pip install ."
     startCommand: "python main.py daily"
     envVars:
       - key: DATABASE_URL
