@@ -44,8 +44,8 @@ class SMTPConfig:
     """Email server configuration."""
     service: str = field(default_factory=lambda: os.getenv("EMAIL_SERVICE"))
     host: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_HOST"))
-    port: int = field(default_factory=lambda: int(os.getenv("EMAIL_SERVER_PORT")))
-    secure: bool = field(default_factory=lambda: os.getenv("EMAIL_SERVER_SECURE"))
+    port: int = field(default_factory=lambda: int(os.getenv("EMAIL_SERVER_PORT", "465")))
+    secure: bool = field(default_factory=lambda: os.getenv("EMAIL_SERVER_SECURE", "false").lower() == "true")
     user: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_USER"))
     password: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_PASSWORD"))
     from_email: str = field(default_factory=lambda: os.getenv("EMAIL_FROM", os.getenv("EMAIL_SERVER_USER")))
