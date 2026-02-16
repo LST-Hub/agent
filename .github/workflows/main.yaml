@@ -2,8 +2,8 @@ name: Timesheet Monitoring Agents
  
 on:
   schedule:
-    # Daily Agent - Runs every day at 9 PM IST (3:30 PM UTC)
-    - cron: '30 15 * * *'
+    # Daily Agent - Runs every day at 8 AM IST (2:30 AM UTC)
+    - cron: '30 2 * * *'
     # Weekly Agent - Wednesday at 6 PM IST (12:30 PM UTC)
     - cron: '30 12 * * 3'
     # Weekly Agent - Friday at 6 PM IST (12:30 PM UTC)
@@ -60,8 +60,8 @@ jobs:
             echo "agent=weekly" >> $GITHUB_OUTPUT
           elif [ "$DAY" == "5" ] && [ "$HOUR" == "12" ]; then
             echo "agent=weekly" >> $GITHUB_OUTPUT
-          # Daily at 15:30 UTC
-          elif [ "$HOUR" == "15" ]; then
+          # Daily at 02:30 UTC
+          elif [ "$HOUR" == "02" ]; then
             echo "agent=daily" >> $GITHUB_OUTPUT
           else
             echo "agent=daily" >> $GITHUB_OUTPUT

@@ -159,7 +159,7 @@ class DailyAgent:
                 to_email=user_email,
                 subject=subject,
                 body=body,
-                cc_email=supervisor_email
+                #cc_email=supervisor_email
             )
         
         # Send notifications to PMs
