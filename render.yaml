@@ -1,102 +1,48 @@
 services:
-  # Daily Agent - Runs every day at 9 PM IST (3:30 PM UTC)
   - type: cron
-    name: timesheet-daily-agent
+    name: timesheet-master-agent
     env: python
     runtime: python-3.11
-    schedule: "30 15 * * *"
+    schedule: "*/5 * * * *"  # Runs every 5 minutes
     buildCommand: "pip install ."
-    startCommand: "python main.py daily"
+    startCommand: "python scheduler.py"
     envVars:
-      - key: DATABASE_URL
+      # Email Configuration
+      - key: EMAIL_SERVICE
         sync: false
-      - key: EMAIL_HOST
+      - key: EMAIL_SERVER_HOST
         sync: false
-      - key: EMAIL_PORT
+      - key: EMAIL_SERVER_PORT
         sync: false
-      - key: EMAIL_USERNAME
+      - key: EMAIL_SERVER_SECURE
         sync: false
-      - key: EMAIL_PASSWORD
+      - key: EMAIL_SERVER_USER
         sync: false
-      - key: PM_EMAIL
+      - key: EMAIL_SERVER_PASSWORD
         sync: false
-      - key: IGNORE_IDS
+      - key: EMAIL_FROM
         sync: false
 
-  # Weekly Agent - Runs Wednesday at 6 PM IST (12:30 PM UTC)
-  - type: cron
-    name: timesheet-weekly-agent-wed
-    env: python
-    runtime: python-3.11
-    schedule: "30 12 * * 3"
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py weekly"
-    envVars:
-      - key: DATABASE_URL
+      # Agent Configuration
+      - key: LOG_LEVEL
         sync: false
-      - key: EMAIL_HOST
-        sync: false
-      - key: EMAIL_PORT
-        sync: false
-      - key: EMAIL_USERNAME
-        sync: false
-      - key: EMAIL_PASSWORD
+      - key: IGNORE_ID
         sync: false
       - key: PM_EMAIL
-        sync: false
-      - key: IGNORE_IDS
         sync: false
 
-  # Weekly Agent - Runs Friday at 6 PM IST (12:30 PM UTC)
-  - type: cron
-    name: timesheet-weekly-agent-fri
-    env: python
-    runtime: python-3.11
-    schedule: "30 12 * * 5"
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py weekly"
-    envVars:
-      - key: DATABASE_URL
+      # SharePoint / Microsoft Configuration
+      - key: TENANT_ID
         sync: false
-      - key: EMAIL_HOST
+      - key: CLIENT_ID
         sync: false
-      - key: EMAIL_PORT
+      - key: CLIENT_SECRET
         sync: false
-      - key: EMAIL_USERNAME
+      - key: FILE_NAME
         sync: false
-      - key: EMAIL_PASSWORD
+      - key: TABLE_NAME
         sync: false
-      - key: PM_EMAIL
+      - key: SITE_ID
         sync: false
-      - key: IGNORE_IDS
-        sync: false
-
-  # Weekly Report Agent - Runs Monday at 9 PM IST (3:30 PM UTC)
-  - type: cron
-    name: timesheet-weekly-report-agent
-    env: python
-    runtime: python-3.11
-    schedule: "30 15 * * 1"
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python main.py weekly-report"
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: EMAIL_HOST
-        sync: false
-      - key: EMAIL_PORT
-        sync: false
-      - key: EMAIL_USERNAME
-        sync: false
-      - key: EMAIL_PASSWORD
-        sync: false
-      - key: PM_EMAIL
-        sync: false
-      - key: IGNORE_IDS
-        sync: false
-      - key: SHAREPOINT_SITE_URL
-        sync: false
-      - key: SHAREPOINT_CLIENT_ID
-        sync: false
-      - key: SHAREPOINT_CLIENT_SECRET
+      - key: DRIVE_ID
         sync: false
