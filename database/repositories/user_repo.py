@@ -55,7 +55,6 @@ class UserRepository(BaseRepository[User]):
             SELECT * FROM User 
             WHERE workspaceId = 3 
             AND active = 1
-            AND User.id= 60
         """)
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
