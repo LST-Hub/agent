@@ -2,7 +2,6 @@ services:
   - type: cron
     name: timesheet-master-agent
     env: python
-    runtime: python-3.11
     schedule: "*/5 * * * *"  # Runs every 5 minutes
     buildCommand: "pip install ."
     startCommand: "python scheduler.py"
