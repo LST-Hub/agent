@@ -27,7 +27,7 @@ def in_window(target_hour, target_minute, window=5):
     return 0 <= diff < window  # triggers if within 5-minute window
 
 # DAILY — Every day at 8 AM IST → 2:30 AM UTC
-if in_window(11, 25):
+if in_window(11, 40):
     logger.info("Triggering Daily Agent...")
     run("python main.py daily")
 
