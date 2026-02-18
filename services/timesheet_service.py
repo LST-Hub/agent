@@ -69,6 +69,8 @@ class TimesheetService:
     def get_idle_users(self, target_date: date, threshold_hours: int = 8) -> List[Dict]:
         """
         Identify users with total duration < 8 hours (or specific threshold).
+        threshold_hours is now in hours, converted to seconds for comparison.
+        Only counts non-draft timesheets.
         """
         if is_weekend(target_date) or is_holiday(target_date):
             return []
@@ -76,17 +78,23 @@ class TimesheetService:
         active_users = self.user_repo.get_active_users()
         active_users = self._filter_ignored_users(active_users)
         idle_records = []
+        
+        threshold_seconds = threshold_hours * 3600  # Convert hours to seconds
 
         for user in active_users:
             timesheets = self.timesheet_repo.get_by_user_and_date(user.id, target_date)
-            total_duration = self.get_total_duration(timesheets)
             
-            idle_hours = threshold_hours - total_duration
+            # Filter out Draft timesheets - only count submitted timesheets
+            submitted_timesheets = [t for t in timesheets if t.status.value != 'Draft']
             
-            if idle_hours > 0:
-                # Breakdown by project
+            total_duration = self.get_total_duration(submitted_timesheets)
+            
+            idle_seconds = threshold_seconds - total_duration
+            
+            if idle_seconds > 0:
+                # Breakdown by project (only submitted timesheets)
                 breakdown = {}
-                for t in timesheets:
+                for t in submitted_timesheets:
                     proj = self.project_repo.get_by_id(t.projectId)
                     p_name = proj.name if proj else f"Project {t.projectId}"
                     breakdown[p_name] = breakdown.get(p_name, 0) + t.duration
@@ -94,7 +102,7 @@ class TimesheetService:
                 idle_records.append({
                     "user": user,
                     "total_worked": total_duration,
-                    "idle_hours": idle_hours,
+                    "idle_hours": idle_seconds,  # Keep in seconds for consistency
                     "breakdown": breakdown
                 })
         
