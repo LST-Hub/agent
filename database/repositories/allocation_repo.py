@@ -35,14 +35,14 @@ class ResourceAllocationRepository(BaseRepository[ResourceAllocation]):
         )
 
     def get_by_id(self, id: int) -> Optional[ResourceAllocation]:
-        query = text("SELECT * FROM ResourceAllocation WHERE id = :id")
+        query = text("SELECT * FROM ResourceAllocation WHERE id = :id AND workspaceId = 3")
         result = self.session.execute(query, {"id": id}).fetchone()
         if result:
             return self._map_row(result)
         return None
 
     def get_all(self) -> List[ResourceAllocation]:
-        query = text("SELECT * FROM ResourceAllocation")
+        query = text("SELECT * FROM ResourceAllocation WHERE workspaceId = 3")
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
 
@@ -57,6 +57,6 @@ class ResourceAllocationRepository(BaseRepository[ResourceAllocation]):
         # If repeat logic is in DB triggers or app logic that generates rows, then `date` is specific.
         # If `date` is missing or null for repeated ones, we'd need more logic.
         # Given `date (date)` column is present, I'll filter by it.
-        query = text("SELECT * FROM ResourceAllocation WHERE date = :target_date")
+        query = text("SELECT * FROM ResourceAllocation WHERE date = :target_date AND workspaceId = 3")
         result = self.session.execute(query, {"target_date": target_date}).fetchall()
         return [self._map_row(row) for row in result]

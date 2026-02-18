@@ -38,19 +38,19 @@ class ProjectRepository(BaseRepository[Project]):
         )
 
     def get_by_id(self, id: int) -> Optional[Project]:
-        query = text("SELECT * FROM Project WHERE id = :id")
+        query = text("SELECT * FROM Project WHERE id = :id AND workspaceId = 3")
         result = self.session.execute(query, {"id": id}).fetchone()
         if result:
             return self._map_row(result)
         return None
 
     def get_all(self) -> List[Project]:
-        query = text("SELECT * FROM Project")
+        query = text("SELECT * FROM Project WHERE workspaceId = 3")
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
 
     def get_active_projects(self) -> List[Project]:
         """Fetch all active projects."""
-        query = text("SELECT * FROM Project WHERE active = 1")
+        query = text("SELECT * FROM Project WHERE active = 1 AND workspaceId = 3")
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
