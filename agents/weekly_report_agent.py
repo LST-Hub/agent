@@ -5,6 +5,7 @@ from utils.date_utils import is_friday, get_current_week_start, get_previous_wee
 from config.settings import settings
 from database.connection import get_db_session
 import logging
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -13,45 +14,33 @@ class WeeklyReportAgent:
         self.email_service = EmailService()
         self.pm_email = settings.get_pm_email()
     
-    def run(self):
-        """Run on Friday to generate reports and send to PM."""
-        # Comment out for testing - uncomment for production
-        # if not is_friday():
-        #     logger.info("Not Friday, skipping weekly report generation.")
-        #     return
-        
+    def _resolve_week_start(self, week_start: Optional[datetime] = None) -> datetime:
+        if week_start is not None:
+            return week_start
+
         today = datetime.now().date()
         if today.weekday() == 0:  # Monday
             week_start, _ = get_previous_week_start_end()
             logger.info(f"Monday run detected. Using previous week start: {week_start.date()}")
         else:
             week_start = get_current_week_start()
+        return week_start
 
+    def generate_weekly_timesheet_report(
+        self, 
+        week_start: Optional[datetime] = None
+    ) -> Tuple[datetime, Optional[str]]:
+        week_start = self._resolve_week_start(week_start)
         logger.info(f"Starting weekly report generation for week starting {week_start.date()}")
-        
-        # Get database session
+
         session_gen = get_db_session()
         session = next(session_gen)
-        
+
         try:
-            # Create service with session
             report_service = WeeklyReportService(session)
-            
-            # Generate and export weekly report to Excel
             logger.info("Fetching timesheet data from database...")
             file_url = report_service.generate_and_export_weekly_report(week_start)
-            
-            if file_url:
-                # Send email to PM with Excel file link
-                logger.info(f"Report generated successfully. File URL: {file_url}")
-                self.send_report_email(file_url, week_start)
-                logger.info("Weekly report email sent successfully.")
-            else:
-                logger.warning("No report generated - no data available for this week.")
-                
-        except Exception as e:
-            logger.error(f"Error generating weekly report: {e}", exc_info=True)
-            raise
+            return week_start, file_url
         finally:
             try:
                 session.close()
@@ -112,6 +101,16 @@ class WeeklyReportAgent:
             logger.error(f"Failed to send email to {', '.join(self.pm_email)}")
             raise Exception("Email sending failed")
 
-# REMOVE THESE LINES - Run via main.py instead
-# object = WeeklyReportAgent()
-# object.run()
+    def run(self):
+        """Run and send weekly timesheet report email."""
+        try:
+            week_start, file_url = self.generate_weekly_timesheet_report()
+            if file_url:
+                logger.info(f"Report generated successfully. File URL: {file_url}")
+                self.send_report_email(file_url, week_start)
+                logger.info("Weekly report email sent successfully.")
+            else:
+                logger.warning("No report generated - no data available for this week.")
+        except Exception as e:
+            logger.error(f"Error generating weekly report: {e}", exc_info=True)
+            raise

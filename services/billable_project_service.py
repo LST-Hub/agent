@@ -10,6 +10,7 @@ from database.repositories.timesheet_repo import TimesheetRepository
 from database.repositories.allocation_repo import ResourceAllocationRepository
 from database.repositories.user_repo import UserRepository
 from database.repositories.task_repo import TaskRepository
+from utils.date_utils import is_weekend, is_holiday
 import logging
 
 logger = logging.getLogger(__name__)
@@ -259,6 +260,12 @@ class BillableProjectService:
         # Check each day for each allocated user
         current_date = start_date
         while current_date <= end_date:
+
+            # ✅ Skip weekends and holidays
+            if is_weekend(current_date) or is_holiday(current_date):
+                current_date += timedelta(days=1)
+                continue
+
             for user_id in allocated_users:
                 # Check if user has timesheet for this day
                 daily_timesheets = [

@@ -3,11 +3,11 @@ Billable Project Report Agent - Generates weekly billable project reports.
 """
 
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 from services.billable_project_service import BillableProjectService
 from services.billable_excel_service import BillableExcelService
 from services.email_service import EmailService
-from utils.date_utils import get_current_week_start
+from utils.date_utils import get_current_week_start, get_previous_week_start_end
 from config.settings import settings
 from database.connection import get_db_session
 import logging
@@ -20,40 +20,42 @@ class BillableReportAgent:
         self.email_service = EmailService()
         self.pm_email = settings.get_pm_email()
     
-    def run(self):
-        """Generate billable project report for the current week."""
-        week_start = get_current_week_start()
+    def _resolve_week_start(self, week_start: Optional[datetime] = None) -> datetime:
+        if week_start is not None:
+            return week_start
+
+        today = datetime.now().date()
+        if today.weekday() == 0:  # Monday
+            week_start, _ = get_previous_week_start_end()
+            logger.info(f"Monday run detected. Using previous week start: {week_start.date()}")
+        else:
+            week_start = get_current_week_start()
+        return week_start
+
+    def generate_billable_report(
+        self, 
+        week_start: Optional[datetime] = None
+    ) -> Tuple[datetime, Optional[str], List[Dict]]:
+        week_start = self._resolve_week_start(week_start)
         logger.info(f"Generating billable project report for week {week_start.date()}")
-        
+
         session_gen = get_db_session()
         session = next(session_gen)
-        
+
         try:
-            # Generate report data
             service = BillableProjectService(session)
             report_data = service.get_billable_projects_report(week_start)
-            
+
             if not report_data:
                 logger.warning("No billable projects found for this week")
-                return
-            
-            # Export to Excel on SharePoint
-            file_url = self.excel_service.export_billable_report(
-                report_data, 
-                week_start
-            )
-            
-            # Send notification email
-            self.send_notification_email(file_url, week_start, report_data)
-            
-            logger.info("Billable project report completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error generating billable report: {e}", exc_info=True)
-            raise
+                return week_start, None, []
+
+            file_url = self.excel_service.export_billable_report(report_data, week_start)
+            return week_start, file_url, report_data
+
         finally:
             session.close()
-    
+
     def send_notification_email(
         self, 
         file_url: str, 
@@ -107,6 +109,6 @@ class BillableReportAgent:
             is_html=True
         )
 
-if __name__ == "__main__":
-    agent = BillableReportAgent()
-    agent.run()
+# if __name__ == "__main__":
+#     agent = BillableReportAgent()
+#     agent.run()

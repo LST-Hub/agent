@@ -36,11 +36,11 @@ elif in_window(12, 30) and weekday in [2, 4]:
     logger.info("Triggering Weekly Agent...")
     run("python main.py weekly")
 
-# WEEKLY REPORT — Monday at 9 AM IST → 3:30 AM UTC
-elif in_window(3, 30) and weekday == 0:
-    logger.info("Triggering Weekly Report Agent...")
-    run("python main.py weekly-report")
-
+# MONDAY SUMMARY — Monday at 9 AM IST → 3:30 AM UTC
+# Sends one combined email: Timesheet Report + Billable Projects Report
+elif in_window(12, 30) and weekday == 0:
+    logger.info("Triggering Monday Summary Orchestrator (Timesheet + Billable Reports)...")
+    run("python main.py monday-summary")
 
 else:
     logger.info("No agent scheduled for this time window. Skipping.")
