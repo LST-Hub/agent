@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from services.weekly_report_service import WeeklyReportService
 from services.email_service import EmailService
-from utils.date_utils import is_friday, get_current_week_start
+from utils.date_utils import is_friday, get_current_week_start, get_previous_week_start_end
 from config.settings import settings
 from database.connection import get_db_session
 import logging
@@ -20,7 +20,13 @@ class WeeklyReportAgent:
         #     logger.info("Not Friday, skipping weekly report generation.")
         #     return
         
-        week_start = get_current_week_start()
+        today = datetime.now().date()
+        if today.weekday() == 0:  # Monday
+            week_start, _ = get_previous_week_start_end()
+            logger.info(f"Monday run detected. Using previous week start: {week_start.date()}")
+        else:
+            week_start = get_current_week_start()
+
         logger.info(f"Starting weekly report generation for week starting {week_start.date()}")
         
         # Get database session
