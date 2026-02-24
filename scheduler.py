@@ -38,7 +38,7 @@ elif in_window(12, 30) and weekday in [2, 4]:
 
 # MONDAY SUMMARY — Monday at 9 AM IST → 3:30 AM UTC
 # Sends one combined email: Timesheet Report + Billable Projects Report
-elif in_window(12, 30) and weekday == 0:
+elif in_window(3, 30) and weekday == 0:
     logger.info("Triggering Monday Summary Orchestrator (Timesheet + Billable Reports)...")
     run("python main.py monday-summary")
 
