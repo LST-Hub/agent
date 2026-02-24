@@ -25,25 +25,27 @@ class WeeklyReportService:
         self.project_repo = ProjectRepository(self.session)
         self.sharepoint_service = SharePointExcelService()
     
-    def generate_and_export_weekly_report(self, week_start: datetime) -> tuple:
-        """
-        Generate weekly timesheet report and export to SharePoint Excel.
-        Returns (SharePoint file URL, excel_bytes, file_name).
-        """
-        week_end = week_start + timedelta(days=6)
-        logger.info(f"Generating weekly report for {week_start.date()} to {week_end.date()}")
+    def generate_and_export_weekly_report(self, week_start):
+        """Generate weekly report with both detailed and summary sheets."""
+        week_end = week_start + timedelta(days=7)
 
-        timesheets_data = self.timesheet_repo.get_weekly_timesheets_for_report(
-            week_start.date(), week_end.date()
+        # Fetch detailed timesheet data
+        timesheet_data = self.timesheet_repo.get_weekly_timesheets_for_report(week_start, week_end)
+
+        # Fetch aggregated summary data
+        summary_data = self.timesheet_repo.get_weekly_summary_for_report(week_start, week_end)
+
+        if not timesheet_data:
+            logger.warning("No timesheet data found for the week.")
+            return None, None, None
+
+        sharepoint_service = SharePointExcelService()
+        file_url, excel_bytes, file_name = sharepoint_service.update_excel_file(
+            data=timesheet_data,
+            week_start=week_start,
+            summary_data=summary_data  # Pass summary data for new sheet
         )
 
-        if not timesheets_data:
-            logger.warning(f"No timesheets found for week {week_start.date()}")
-            return "", None, None
-
-        file_url, excel_bytes, file_name = self.sharepoint_service.update_excel_file(timesheets_data, week_start)
-
-        logger.info(f"Weekly report exported successfully. URL: {file_url}")
         return file_url, excel_bytes, file_name
     
     def generate_weekly_report(self, user_id: int, week_start: datetime):

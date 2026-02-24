@@ -220,3 +220,86 @@ class TimesheetRepository(BaseRepository[Timesheet]):
             }
             for row in result
         ]
+    
+    def get_weekly_summary_for_report(self, start_date: date, end_date: date) -> List[dict]:
+        """
+        Fetch aggregated weekly data grouped by user and project.
+        Includes idle timesheets (no project) and leave projects.
+        """
+        query = text("""
+            SELECT 
+                creator.id AS userId,
+                creator.name AS userName,
+                project.id AS projectId,
+                COALESCE(project.name, 'Idle') AS projectName,
+                COALESCE(project.billable, 0) AS billable,
+                GROUP_CONCAT(DISTINCT task.name ORDER BY task.name SEPARATOR ', ') AS taskNames,
+                SUM(t.duration) AS totalWorkedSeconds,
+                GROUP_CONCAT(t.description ORDER BY t.date SEPARATOR ' | ') AS allDescriptions,
+                COUNT(t.id) AS timesheetCount,
+                ra.duration AS allocatedHours
+            FROM Timesheet t
+            LEFT JOIN Task task ON t.taskId = task.id AND task.workspaceId = 3
+            LEFT JOIN Project project ON t.projectId = project.id AND project.workspaceId = 3
+            INNER JOIN User creator ON t.createdById = creator.id
+            LEFT JOIN ResourceAllocation ra 
+                ON ra.createdById = creator.id 
+                AND ra.projectId = project.id
+            WHERE t.date >= :start_date
+            AND t.date < :end_date
+            AND creator.workspaceId = 3
+            AND creator.active = 1
+            GROUP BY creator.id, creator.name, project.id, project.name, project.billable, ra.duration
+            ORDER BY creator.name, project.name
+        """)
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+
+        # Keywords that indicate leave projects
+        LEAVE_KEYWORDS = {"leave", "full day leave", "half day leave", "sick leave", "annual leave", "public holiday"}
+
+        def format_duration(seconds):
+            if not seconds:
+                return "0 hrs"
+            hours = seconds / 3600
+            full_hours = int(hours)
+            remaining_minutes = int((hours - full_hours) * 60)
+            if remaining_minutes > 0:
+                return f"{full_hours} hrs {remaining_minutes} mins"
+            return f"{full_hours} hrs"
+
+        def format_allocated(seconds):
+            if not seconds:
+                return "N/A"
+            hours = seconds / 3600
+            full_hours = int(hours)
+            remaining_minutes = int((hours - full_hours) * 60)
+            if remaining_minutes > 0:
+                return f"{full_hours} hrs {remaining_minutes} mins"
+            return f"{full_hours} hrs"
+
+        def get_row_type(project_name: str) -> str:
+            """Classify the row as 'leave', 'idle', or 'work'."""
+            name = (project_name or "").strip().lower()
+            if not name or name == "idle":
+                return "idle"
+            if any(kw in name for kw in LEAVE_KEYWORDS):
+                return "leave"
+            return "work"
+
+        return [
+            {
+                "userId": row.userId,
+                "userName": row.userName,
+                "projectId": row.projectId,
+                "projectName": (row.projectName or "Idle").strip(),
+                "billable": bool(row.billable),
+                "taskNames": row.taskNames or "N/A",
+                "totalWorkedSeconds": row.totalWorkedSeconds or 0,
+                "totalWorkedFormatted": format_duration(row.totalWorkedSeconds or 0),
+                "allDescriptions": row.allDescriptions or "",
+                "timesheetCount": row.timesheetCount,
+                "allocatedHours": format_allocated(row.allocatedHours),
+                "rowType": get_row_type(row.projectName),  # 'work', 'leave', or 'idle'
+            }
+            for row in result
+        ]
