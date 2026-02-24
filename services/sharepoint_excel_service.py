@@ -131,10 +131,10 @@ class SharePointExcelService:
             "Content-Type": "application/json"
         }
     
-    def update_excel_file(self, data: List[Dict], week_start: datetime) -> str:
+    def update_excel_file(self, data: List[Dict], week_start: datetime) -> tuple:
         """
         Update Excel file on SharePoint with weekly timesheet data.
-        Returns the SharePoint file URL.
+        Returns (SharePoint file URL, excel_bytes, file_name).
         """
         try:
             logger.info(f"Processing {len(data)} timesheet records")
@@ -189,18 +189,10 @@ class SharePointExcelService:
                 data=excel_content
             )
             
-            if response.status_code not in [200, 201]:
-                logger.error(f"Upload failed with status: {response.status_code}")
-                logger.error(f"Response: {response.text}")
-            
             response.raise_for_status()
-            
-            file_info = response.json()
-            sharepoint_url = file_info.get('webUrl', '')
-            
-            logger.info(f"Successfully updated Excel file: {file_name}")
-            logger.info(f"SharePoint URL: {sharepoint_url}")
-            return sharepoint_url
+            sharepoint_url = response.json().get('webUrl', '')
+
+            return sharepoint_url, excel_content, file_name
             
         except Exception as e:
             logger.error(f"Failed to update Excel file: {e}", exc_info=True)

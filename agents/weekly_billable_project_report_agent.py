@@ -32,10 +32,7 @@ class BillableReportAgent:
             week_start = get_current_week_start()
         return week_start
 
-    def generate_billable_report(
-        self, 
-        week_start: Optional[datetime] = None
-    ) -> Tuple[datetime, Optional[str], List[Dict]]:
+    def generate_billable_report(self, week_start: Optional[datetime] = None) -> Tuple[datetime, Optional[str], List[Dict], Optional[bytes], Optional[str]]:
         week_start = self._resolve_week_start(week_start)
         logger.info(f"Generating billable project report for week {week_start.date()}")
 
@@ -48,10 +45,10 @@ class BillableReportAgent:
 
             if not report_data:
                 logger.warning("No billable projects found for this week")
-                return week_start, None, []
+                return week_start, None, [], None, None
 
-            file_url = self.excel_service.export_billable_report(report_data, week_start)
-            return week_start, file_url, report_data
+            file_url, excel_bytes, file_name = self.excel_service.export_billable_report(report_data, week_start)
+            return week_start, file_url, report_data, excel_bytes, file_name
 
         finally:
             session.close()

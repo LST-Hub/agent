@@ -26,28 +26,17 @@ class WeeklyReportAgent:
             week_start = get_current_week_start()
         return week_start
 
-    def generate_weekly_timesheet_report(
-        self, 
-        week_start: Optional[datetime] = None
-    ) -> Tuple[datetime, Optional[str]]:
+    def generate_weekly_timesheet_report(self, week_start=None):
         week_start = self._resolve_week_start(week_start)
-        logger.info(f"Starting weekly report generation for week starting {week_start.date()}")
-
         session_gen = get_db_session()
         session = next(session_gen)
-
         try:
             report_service = WeeklyReportService(session)
-            logger.info("Fetching timesheet data from database...")
-            file_url = report_service.generate_and_export_weekly_report(week_start)
-            return week_start, file_url
+            file_url, excel_bytes, file_name = report_service.generate_and_export_weekly_report(week_start)
+            return week_start, file_url, excel_bytes, file_name
         finally:
-            try:
-                session.close()
-                logger.info("Database session closed.")
-            except Exception as e:
-                logger.error(f"Error closing session: {e}")
-    
+            session.close()
+
     def send_report_email(self, file_url: str, week_start: datetime):
         """Send report email to PM with Excel file link."""
         week_end = week_start + timedelta(days=6)
@@ -104,7 +93,7 @@ class WeeklyReportAgent:
     def run(self):
         """Run and send weekly timesheet report email."""
         try:
-            week_start, file_url = self.generate_weekly_timesheet_report()
+            week_start, file_url, excel_bytes, file_name = self.generate_weekly_timesheet_report()
             if file_url:
                 logger.info(f"Report generated successfully. File URL: {file_url}")
                 self.send_report_email(file_url, week_start)

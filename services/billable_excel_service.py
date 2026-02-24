@@ -19,54 +19,45 @@ class BillableExcelService(SharePointExcelService):
         self, 
         report_data: List[Dict], 
         week_start: datetime
-    ) -> str:
+    ) -> tuple:
         """
         Export billable project report to Excel on SharePoint.
         
-        Returns SharePoint file URL.
+        Returns (SharePoint file URL, excel_bytes, file_name).
         """
         try:
             logger.info(f"Processing {len(report_data)} billable projects")
-            
-            # Create main project summary sheet
+
             project_summary = self._create_project_summary(report_data)
-            
-            # Create resource details sheet
             resource_details = self._create_resource_details(report_data)
-            
-            # Create missing timesheets sheet
             missing_timesheets = self._create_missing_timesheets(report_data)
-            
-            # Generate file name
+
             week_str = week_start.strftime('%Y-W%U')
             file_name = f"Billable_Projects_Report_{week_str}.xlsx"
-            
-            # Create Excel with multiple sheets
+
             excel_content = self._create_multi_sheet_excel(
                 project_summary,
                 resource_details,
                 missing_timesheets
             )
-            
+
             # Upload to SharePoint
             file_url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{file_name}"
             upload_url = f"{file_url}:/content"
-            
+
             import requests
             response = requests.put(
                 upload_url,
                 headers=self._get_headers(),
                 data=excel_content
             )
-            
+
             response.raise_for_status()
-            
-            file_info = response.json()
-            sharepoint_url = file_info.get('webUrl', '')
-            
+            sharepoint_url = response.json().get('webUrl', '')
+
             logger.info(f"Successfully uploaded billable report: {file_name}")
-            return sharepoint_url
-            
+            return sharepoint_url, excel_content, file_name
+
         except Exception as e:
             logger.error(f"Failed to export billable report: {e}", exc_info=True)
             raise
