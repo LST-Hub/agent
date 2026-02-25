@@ -237,19 +237,22 @@ class TimesheetRepository(BaseRepository[Timesheet]):
                 SUM(t.duration) AS totalWorkedSeconds,
                 GROUP_CONCAT(t.description ORDER BY t.date SEPARATOR ' | ') AS allDescriptions,
                 COUNT(t.id) AS timesheetCount,
-                ra.duration AS allocatedHours
+                (
+                    SELECT ra.duration 
+                    FROM ResourceAllocation ra 
+                    WHERE ra.createdById = creator.id 
+                    AND ra.projectId = project.id 
+                    LIMIT 1
+                ) AS allocatedHours
             FROM Timesheet t
             LEFT JOIN Task task ON t.taskId = task.id AND task.workspaceId = 3
             LEFT JOIN Project project ON t.projectId = project.id AND project.workspaceId = 3
             INNER JOIN User creator ON t.createdById = creator.id
-            LEFT JOIN ResourceAllocation ra 
-                ON ra.createdById = creator.id 
-                AND ra.projectId = project.id
             WHERE t.date >= :start_date
             AND t.date < :end_date
             AND creator.workspaceId = 3
             AND creator.active = 1
-            GROUP BY creator.id, creator.name, project.id, project.name, project.billable, ra.duration
+            GROUP BY creator.id, creator.name, project.id, project.name, project.billable
             ORDER BY creator.name, project.name
         """)
         result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()

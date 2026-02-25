@@ -4,14 +4,17 @@ SharePoint Excel Service for exporting reports.
 
 import requests
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict
 import logging
 import re
 import io
+import pandas as pd
 from openpyxl.utils import get_column_letter
 from config.settings import settings
 from agent.ai_service import AIAgent
+from datetime import datetime, timedelta
+from utils.date_utils import is_holiday, is_weekend
 
 logger = logging.getLogger(__name__)
 
@@ -205,12 +208,22 @@ class SharePointExcelService:
         ai_agent = AIAgent()
         total_weekly_seconds = 8 * 5 * 3600  # 40 hrs
 
-        # Step 1: Compute per-user worked seconds — ONLY 'work' and 'leave' rows
-        # 'idle' rows are NOT work — they don't count toward worked time
+        working_days = 0
+        for i in range(7):
+            day = week_start + timedelta(days=i)
+            day_date = day.date() if isinstance(day, datetime) else day
+            if not is_weekend(day_date) and not is_holiday(day_date):
+                working_days += 1
+        total_weekly_seconds = working_days * 8 * 3600
+
+        # Step 1: Compute per-user worked seconds used to calculate remaining idle capacity.
+        # IMPORTANT: exclude 'idle' rows from this sum so logged idle hours
+        # appear in "Total Hours Worked" but do NOT reduce the "Idle Hours (Week)".
         user_totals: Dict[int, int] = {}
         for row in summary_data:
             uid = row["userId"]
             row_type = row.get("rowType", "work")
+            # only count productive work and leave toward used capacity
             if row_type in ("work", "leave"):
                 user_totals[uid] = user_totals.get(uid, 0) + (row["totalWorkedSeconds"] or 0)
 
@@ -261,7 +274,7 @@ class SharePointExcelService:
                     "Billable":           "No",
                     "Tasks Worked On":    "N/A",
                     "Allocated Hours":    "N/A",
-                    "Total Hours Worked": "0 hrs",
+                    "Total Hours Worked": row.get("totalWorkedFormatted", "0 hrs"),
                     "Idle Hours (Week)":  fmt(idle_seconds),  # ✅ Same 37 hrs, no extra addition
                     "AI Summary":         "No project assigned. Resource logged idle hours.",
                 })
