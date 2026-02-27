@@ -41,7 +41,7 @@ def run_monday_summary():
     weekly_agent = WeeklyReportAgent()
     billable_agent = BillableReportAgent()
 
-    ws_week_start, timesheet_url, timesheet_bytes, timesheet_filename = weekly_agent.generate_weekly_timesheet_report(week_start)
+    ws_week_start, timesheet_result, summary_result, project_result = weekly_agent.generate_weekly_timesheet_report(week_start)
     _, billable_url, billable_data, billable_bytes, billable_filename = billable_agent.generate_billable_report(week_start)
 
     week_end = ws_week_start + timedelta(days=6)
@@ -61,8 +61,8 @@ def run_monday_summary():
         <h2>Weekly Reports Summary</h2>
         <p><strong>Week:</strong> {ws_week_start.strftime('%B %d, %Y')} - {week_end.strftime('%B %d, %Y')}</p>
 
-        <h3>Timesheet Report</h3>
-        <p>Please find the weekly timesheet report attached to this email.</p>
+        <h3>Timesheet Reports</h3>
+        <p>Three timesheet files are attached: Weekly Timesheets, Weekly Summary, and Project Summary.</p>
 
         <h3>Billable Projects Report</h3>
         <p>Please find the billable projects report attached to this email.</p>
@@ -81,10 +81,12 @@ def run_monday_summary():
     </html>
     """
 
-    # Build attachments list
     attachments = []
-    if timesheet_bytes and timesheet_filename:
-        attachments.append({'filename': timesheet_filename, 'data': timesheet_bytes})
+    for result in [timesheet_result, summary_result, project_result]:
+        if result:
+            _, excel_bytes, file_name = result
+            if excel_bytes and file_name:
+                attachments.append({'filename': file_name, 'data': excel_bytes})
     if billable_bytes and billable_filename:
         attachments.append({'filename': billable_filename, 'data': billable_bytes})
 

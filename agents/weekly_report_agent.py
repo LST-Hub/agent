@@ -32,58 +32,53 @@ class WeeklyReportAgent:
         session = next(session_gen)
         try:
             report_service = WeeklyReportService(session)
-            file_url, excel_bytes, file_name = report_service.generate_and_export_weekly_report(week_start)
-            return week_start, file_url, excel_bytes, file_name
+            timesheet_result, summary_result, project_result = report_service.generate_and_export_weekly_report(week_start)
+            return week_start, timesheet_result, summary_result, project_result
         finally:
             session.close()
 
-    def send_report_email(self, file_url: str, week_start: datetime):
-        """Send report email to PM with Excel file link."""
+    def send_report_email(self, week_start: datetime, timesheet_result, summary_result, project_result):
+        """Send report email to PM with three separate Excel files attached."""
         week_end = week_start + timedelta(days=6)
-        
+
         if not self.pm_email:
             logger.error("PM_EMAIL not configured in settings!")
             raise ValueError("PM_EMAIL environment variable is not set")
-        
-        logger.info(f"Preparing email for PM: {', '.join(self.pm_email)}")
-        
+
         subject = f"Weekly Timesheet Report - {week_start.strftime('%Y-W%U')}"
-        
+
         body = f"""
         <html>
         <body>
             <h2>Weekly Timesheet Report</h2>
             <p><strong>Week:</strong> {week_start.strftime('%B %d, %Y')} - {week_end.strftime('%B %d, %Y')}</p>
-            
-            <p>Please find the weekly timesheet report at the following link:</p>
-            
-            <p><a href="{file_url}">View Weekly Timesheet Report</a></p>
-            
-            <p>This report contains:</p>
+            <p>Please find the three weekly report files attached to this email:</p>
             <ul>
-                <li>Date</li>
-                <li>Duration (hours)</li>
-                <li>Description</li>
-                <li>Task ID</li>
-                <li>Project ID & Name</li>
-                <li>Approval Status</li>
-                <li>Rejection Details (if any)</li>
-                <li>User Information</li>
+                <li><strong>Weekly Timesheets</strong> – detailed per-entry log</li>
+                <li><strong>Weekly Summary</strong> – aggregated hours by user/project</li>
+                <li><strong>Project Summary</strong> – project-level breakdown</li>
             </ul>
-            
             <p>Best regards,<br>Operations Agent</p>
         </body>
         </html>
         """
-        
-        logger.info(f"Sending email to {', '.join(self.pm_email)}...")
+
+        attachments = []
+        for result in [timesheet_result, summary_result, project_result]:
+            if result:
+                _, excel_bytes, file_name = result
+                if excel_bytes and file_name:
+                    attachments.append({'filename': file_name, 'data': excel_bytes})
+
+        logger.info(f"Sending email with {len(attachments)} attachment(s) to {', '.join(self.pm_email)}...")
         success = self.email_service.send_alert(
             to_email=self.pm_email,
             subject=subject,
             body=body,
-            is_html=True
+            is_html=True,
+            attachments=attachments
         )
-        
+
         if success:
             logger.info(f"Email sent successfully to {', '.join(self.pm_email)}")
         else:
@@ -93,10 +88,9 @@ class WeeklyReportAgent:
     def run(self):
         """Run and send weekly timesheet report email."""
         try:
-            week_start, file_url, excel_bytes, file_name = self.generate_weekly_timesheet_report()
-            if file_url:
-                logger.info(f"Report generated successfully. File URL: {file_url}")
-                self.send_report_email(file_url, week_start)
+            week_start, timesheet_result, summary_result, project_result = self.generate_weekly_timesheet_report()
+            if any([timesheet_result, summary_result, project_result]):
+                self.send_report_email(week_start, timesheet_result, summary_result, project_result)
                 logger.info("Weekly report email sent successfully.")
             else:
                 logger.warning("No report generated - no data available for this week.")

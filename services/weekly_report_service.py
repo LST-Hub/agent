@@ -26,27 +26,29 @@ class WeeklyReportService:
         self.sharepoint_service = SharePointExcelService()
     
     def generate_and_export_weekly_report(self, week_start):
-        """Generate weekly report with both detailed and summary sheets."""
         week_end = week_start + timedelta(days=7)
 
-        # Fetch detailed timesheet data
         timesheet_data = self.timesheet_repo.get_weekly_timesheets_for_report(week_start, week_end)
-
-        # Fetch aggregated summary data
-        summary_data = self.timesheet_repo.get_weekly_summary_for_report(week_start, week_end)
+        summary_data   = self.timesheet_repo.get_weekly_summary_for_report(week_start, week_end)
+        project_data   = self.timesheet_repo.get_project_info(week_start, week_end)
 
         if not timesheet_data:
             logger.warning("No timesheet data found for the week.")
             return None, None, None
 
         sharepoint_service = SharePointExcelService()
-        file_url, excel_bytes, file_name = sharepoint_service.update_excel_file(
-            data=timesheet_data,
-            week_start=week_start,
-            summary_data=summary_data  # Pass summary data for new sheet
+
+        timesheet_result = sharepoint_service.update_excel_file(
+            data=timesheet_data, week_start=week_start, sheet_type="timesheets"
+        )
+        summary_result = sharepoint_service.update_excel_file(
+            data=summary_data, week_start=week_start, sheet_type="summary"   # ✅ data= not summary_data=
+        )
+        project_result = sharepoint_service.update_excel_file(
+            data=project_data, week_start=week_start, sheet_type="project"   # ✅ data= not project_data=
         )
 
-        return file_url, excel_bytes, file_name
+        return timesheet_result, summary_result, project_result
     
     def generate_weekly_report(self, user_id: int, week_start: datetime):
         """Generate comprehensive weekly report for a user"""

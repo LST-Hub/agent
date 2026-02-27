@@ -137,60 +137,105 @@ class SharePointExcelService:
             "Content-Type": "application/json"
         }
     
-    def update_excel_file(self, data: List[Dict], week_start: datetime, summary_data: List[Dict] = None) -> tuple:
+    def _get_tab_name(self, week_start: datetime) -> str:
+        """Generate Excel sheet tab name like 'week-16-20' from week date range."""
+        week_end = week_start + timedelta(days=4)  # Mon–Fri
+        if week_start.month == week_end.month:
+            return f"week-{week_start.day}-{week_end.day}"
+        else:
+            # Cross-month week e.g. Apr 28 – May 2 → "week-Apr28-May02"
+            return f"week-{week_start.strftime('%b%d')}-{week_end.strftime('%b%d')}"
+        
+    def _download_existing_file(self, file_name: str) -> bytes | None:
         """
-        Update Excel file on SharePoint with weekly timesheet data.
-        Adds a 'Weekly Summary' sheet if summary_data is provided.
-        Returns (SharePoint file URL, excel_bytes, file_name).
+        Download existing Excel file from SharePoint.
+        Returns file bytes if found, None if file doesn't exist yet.
         """
         try:
-            logger.info(f"Processing {len(data)} timesheet records")
-
-            df = pd.DataFrame(data)
-            logger.info(f"DataFrame created with shape: {df.shape}")
-
-            # Clean all text columns to remove illegal characters
-            text_columns = ['description', 'rejectionNote', 'userName', 'userEmail', 'projectName', 'status']
-            for col in text_columns:
-                if col in df.columns:
-                    df[col] = df[col].apply(self._clean_text_for_excel)
-                    logger.info(f"Cleaned column: {col}")
-
-            if not df.empty:
-                df['approved'] = df['approved'].map({1: 'Yes', 0: 'No', True: 'Yes', False: 'No'})
-                df['rejected'] = df['rejected'].map({1: 'Yes', 0: 'No', True: 'Yes', False: 'No'})
-                df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
-                if 'rejectedAt' in df.columns:
-                    df['rejectedAt'] = pd.to_datetime(df['rejectedAt'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
-                df = df.fillna('')
-                logger.info("Data formatting completed")
-
-            # Build summary DataFrame if provided
-            summary_df = None
-            if summary_data:
-                summary_df = self._build_summary_dataframe(summary_data, week_start)
-
-            week_str = week_start.strftime('%Y-W%U')
-            file_name = f"{self.file_name}_{week_str}.xlsx"
-            logger.info(f"Target file name: {file_name}")
-
-            logger.info("Creating Excel content...")
-            excel_content = self._create_excel_content(df, summary_df=summary_df)
-
-            file_url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{file_name}"
-            upload_url = f"{file_url}:/content"
-
-            logger.info(f"Uploading to SharePoint: {upload_url}")
-
-            response = requests.put(
-                upload_url,
-                headers=self._get_headers(),
-                data=excel_content
+            url = (
+                f"https://graph.microsoft.com/v1.0/sites/{self.site_id}"
+                f"/drives/{self.drive_id}/root:/{file_name}:/content"
             )
-
+            response = requests.get(url, headers=self._get_headers())
+            if response.status_code == 404:
+                logger.info(f"File '{file_name}' not found on SharePoint — will create new.")
+                return None
             response.raise_for_status()
-            sharepoint_url = response.json().get('webUrl', '')
+            logger.info(f"Downloaded existing file '{file_name}' ({len(response.content)} bytes)")
+            return response.content
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                return None
+            logger.error(f"Error downloading existing file: {e}")
+            raise
+        
+    def update_excel_file(
+        self,
+        data: List[Dict],
+        week_start: datetime,
+        summary_data: List[Dict] = None,   # kept for backward compat, no longer used
+        project_data: List[Dict] = None,   # kept for backward compat, no longer used
+        sheet_type: str = "timesheets"
+    ) -> tuple:
+        try:
+            type_file_map = {
+                "timesheets": f"{self.file_name}_Weekly_Timesheets.xlsx",
+                "summary":    f"{self.file_name}_Weekly_Summary.xlsx",
+                "project":    f"{self.file_name}_Project_Summary.xlsx",
+            }
+            file_name = type_file_map.get(sheet_type, f"{self.file_name}_{sheet_type}.xlsx")
+            tab_name  = self._get_tab_name(week_start)
+            logger.info(f"[{sheet_type}] Target file: '{file_name}' | New tab: '{tab_name}'")
 
+            # --- Build DataFrame based on sheet_type using `data` for all types ---
+            if sheet_type == "timesheets":
+                df = pd.DataFrame(data)
+                text_columns = ['description', 'rejectionNote', 'userName', 'userEmail', 'projectName', 'status']
+                for col in text_columns:
+                    if col in df.columns:
+                        df[col] = df[col].apply(self._clean_text_for_excel)
+                if not df.empty:
+                    df['approved'] = df['approved'].map({1: 'Yes', 0: 'No', True: 'Yes', False: 'No'})
+                    df['rejected'] = df['rejected'].map({1: 'Yes', 0: 'No', True: 'Yes', False: 'No'})
+                    df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+                    if 'rejectedAt' in df.columns:
+                        df['rejectedAt'] = pd.to_datetime(df['rejectedAt'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                    df = df.fillna('')
+
+            elif sheet_type == "summary":
+                if not data:
+                    logger.warning("No data provided for summary sheet, skipping.")
+                    return None, None, None
+                df = self._build_summary_dataframe(data, week_start)  # ✅ uses `data`
+
+            elif sheet_type == "project":
+                if not data:
+                    logger.warning("No data provided for project sheet, skipping.")
+                    return None, None, None
+                df = self._build_project_dataframe(data, week_start)  # ✅ uses `data`
+
+            else:
+                df = pd.DataFrame(data)
+
+            if df is None or df.empty:
+                logger.warning(f"Empty DataFrame for sheet_type='{sheet_type}', skipping.")
+                return None, None, None
+
+            # Download existing file (if any) and append new tab
+            existing_bytes = self._download_existing_file(file_name)
+            excel_content  = self._create_excel_content(df, tab_name=tab_name, existing_bytes=existing_bytes)
+
+            # Upload back to SharePoint
+            upload_url = (
+                f"https://graph.microsoft.com/v1.0/sites/{self.site_id}"
+                f"/drives/{self.drive_id}/root:/{file_name}:/content"
+            )
+            logger.info(f"Uploading '{file_name}' to SharePoint...")
+            response = requests.put(upload_url, headers=self._get_headers(), data=excel_content)
+            response.raise_for_status()
+
+            sharepoint_url = response.json().get('webUrl', '')
+            logger.info(f"Uploaded successfully: {sharepoint_url}")
             return sharepoint_url, excel_content, file_name
 
         except Exception as e:
@@ -260,7 +305,7 @@ class SharePointExcelService:
                     "Allocated Hours":    row.get("allocatedHours", "N/A"),
                     "Total Hours Worked": row["totalWorkedFormatted"],
                     "Idle Hours (Week)":  fmt(idle_seconds),
-                    "AI Summary":         "The resource was on leave during this period.",
+                    #"AI Summary":         "The resource was on leave during this period.",
                 })
 
             elif row_type == "idle":
@@ -276,7 +321,7 @@ class SharePointExcelService:
                     "Allocated Hours":    "N/A",
                     "Total Hours Worked": row.get("totalWorkedFormatted", "0 hrs"),
                     "Idle Hours (Week)":  fmt(idle_seconds),  # ✅ Same 37 hrs, no extra addition
-                    "AI Summary":         "No project assigned. Resource logged idle hours.",
+                    #"AI Summary":         "No project assigned. Resource logged idle hours.",
                 })
 
             else:
@@ -286,18 +331,18 @@ class SharePointExcelService:
                     if d.strip() and len(d.strip()) > 3
                 ]
 
-                if real_descriptions:
-                    metrics_text = (
-                        f"Resource: {row['userName']}\n"
-                        f"Project: {project_name}\n"
-                        f"Tasks worked on: {row['taskNames']}\n"
-                        f"Work descriptions:\n" + "\n".join(f"- {d}" for d in real_descriptions)
-                    )
-                    logger.info(f"Generating AI summary for {row['userName']} on {project_name}")
-                    ai_summary = ai_agent.generate_weekly_summary(metrics_text)
-                else:
-                    logger.info(f"No descriptions for {row['userName']} on {project_name}, skipping AI")
-                    ai_summary = "No descriptions provided for this project."
+                # if real_descriptions:
+                #     metrics_text = (
+                #         f"Resource: {row['userName']}\n"
+                #         f"Project: {project_name}\n"
+                #         f"Tasks worked on: {row['taskNames']}\n"
+                #         f"Work descriptions:\n" + "\n".join(f"- {d}" for d in real_descriptions)
+                #     )
+                #     logger.info(f"Generating AI summary for {row['userName']} on {project_name}")
+                #     #ai_summary = ai_agent.generate_weekly_summary(metrics_text)
+                # else:
+                #     logger.info(f"No descriptions for {row['userName']} on {project_name}, skipping AI")
+                #     #ai_summary = "No descriptions provided for this project."
 
                 rows.append({
                     "Resource Name":      row["userName"],
@@ -307,29 +352,80 @@ class SharePointExcelService:
                     "Allocated Hours":    row.get("allocatedHours", "N/A"),
                     "Total Hours Worked": row["totalWorkedFormatted"],
                     "Idle Hours (Week)":  fmt(idle_seconds),
-                    "AI Summary":         self._clean_text_for_excel(ai_summary),
+                    #"AI Summary":         self._clean_text_for_excel(ai_summary),
                 })
 
         df = pd.DataFrame(rows)
         return df
 
-    def _create_excel_content(self, df: pd.DataFrame, summary_df: pd.DataFrame = None) -> bytes:
-        """Create Excel file content from DataFrame. Adds a Weekly Summary sheet if provided."""
-        try:
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                # Sheet 1: Detailed timesheets
-                df.to_excel(writer, sheet_name='Weekly Timesheets', index=False)
-                self._auto_adjust_columns(writer, df, 'Weekly Timesheets')
+    def _build_project_dataframe(self, project_data: List[Dict], week_start: datetime) -> pd.DataFrame:
+        """Build a DataFrame from project summary data for the Project Summary sheet."""
+        if not project_data:
+            return pd.DataFrame()
 
-                # Sheet 2: Weekly Summary
-                if summary_df is not None and not summary_df.empty:
-                    summary_df.to_excel(writer, sheet_name='Weekly Summary', index=False)
-                    self._auto_adjust_columns(writer, summary_df, 'Weekly Summary')
-                    logger.info("Weekly Summary sheet added to Excel")
+        def _fmt_seconds(sec):
+            if not sec:
+                return "0 hrs"
+            h = int(sec // 3600)
+            m = int((sec % 3600) // 60)
+            return f"{h} hrs {m} mins" if m else f"{h} hrs"
+
+        proj_rows = []
+        for p in project_data:
+            proj_rows.append({
+                "Project Name": p.get("projectName", ""),
+                "Weekly Report": "",
+                "Comments": "",
+                "Rahul Remarks": "",
+                "Pro. Type": p.get("billable", ""),
+                "PM": p.get("pmName", ""),
+                "All Hours Approved/Rejected in TaskSprint?": f"Approved: {_fmt_seconds(p.get('approvedBillableSeconds'))} | Rejected: {_fmt_seconds(p.get('rejectedSeconds'))}",
+                "Current Status": p.get("statusName", ""),
+                "Approved Billable hours": _fmt_seconds(p.get("approvedBillableSeconds")),
+                "No of hours booked in TS": _fmt_seconds(p.get("totalWorkedSeconds"))
+            })
+
+        return pd.DataFrame(proj_rows)
+
+
+    def _create_excel_content(
+        self,
+        df: pd.DataFrame,
+        tab_name: str,
+        existing_bytes: bytes = None,
+        # legacy params kept for backward compatibility
+        summary_df: pd.DataFrame = None,
+        project_df: pd.DataFrame = None,
+    ) -> bytes:
+        """
+        Append `df` as a new sheet named `tab_name` into `existing_bytes` workbook.
+        If `existing_bytes` is None, creates a fresh workbook.
+        If a sheet with `tab_name` already exists it will be overwritten.
+        """
+        try:
+            from openpyxl import load_workbook
+
+            buffer = io.BytesIO()
+
+            if existing_bytes:
+                # Load the existing workbook
+                wb_buffer = io.BytesIO(existing_bytes)
+                with pd.ExcelWriter(wb_buffer, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                    # Reload workbook so ExcelWriter keeps all existing sheets
+                    df.to_excel(writer, sheet_name=tab_name, index=False)
+                    self._auto_adjust_columns(writer, df, tab_name)
+                wb_buffer.seek(0)
+                buffer.write(wb_buffer.read())
+            else:
+                # No existing file — create from scratch
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name=tab_name, index=False)
+                    self._auto_adjust_columns(writer, df, tab_name)
 
             buffer.seek(0)
+            logger.info(f"Excel content created — tab '{tab_name}' written successfully.")
             return buffer.getvalue()
+
         except Exception as e:
             logger.error(f"Error creating Excel content: {e}", exc_info=True)
             raise
@@ -348,17 +444,23 @@ class SharePointExcelService:
             except Exception as e:
                 logger.warning(f"Could not adjust width for column {col}: {e}")
 
-    def get_file_url(self, week_start: datetime) -> str:
-        """Get the SharePoint URL for a specific week's file."""
-        week_str = week_start.strftime('%Y-W%U')
-        file_name = f"{self.file_name}_{week_str}.xlsx"
-        
+    def get_file_url(self, week_start: datetime, sheet_type: str = "timesheets") -> str:
+        """Get the SharePoint URL for a specific report type's permanent file."""
+        type_file_map = {
+            "timesheets": f"{self.file_name}_Weekly_Timesheets.xlsx",
+            "summary":    f"{self.file_name}_Weekly_Summary.xlsx",
+            "project":    f"{self.file_name}_Project_Summary.xlsx",
+        }
+        file_name = type_file_map.get(sheet_type, f"{self.file_name}_{sheet_type}.xlsx")
+
         try:
-            file_url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drives/{self.drive_id}/root:/{file_name}"
-            response = requests.get(file_url, headers=self._get_headers())
+            url = (
+                f"https://graph.microsoft.com/v1.0/sites/{self.site_id}"
+                f"/drives/{self.drive_id}/root:/{file_name}"
+            )
+            response = requests.get(url, headers=self._get_headers())
             response.raise_for_status()
-            
             return response.json().get('webUrl', '')
         except Exception as e:
-            logger.error(f"Failed to get file URL: {e}")
+            logger.error(f"Failed to get file URL for '{file_name}': {e}")
             return ""

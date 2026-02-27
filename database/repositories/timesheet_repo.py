@@ -306,3 +306,40 @@ class TimesheetRepository(BaseRepository[Timesheet]):
             }
             for row in result
         ]
+    
+    def get_project_info(self, start_date: date, end_date: date) -> List[dict]:
+        query = text("""
+            SELECT 
+                p.id AS projectId,
+                p.name AS projectName,
+                p.billable AS billable,
+                p.pmId,
+                u.name AS pmName,
+                (SELECT s.name FROM Status s WHERE s.id = p.statusId LIMIT 1) AS statusName,
+                SUM(t.duration) AS totalWorkedSeconds,
+                SUM(CASE WHEN t.approved = 1 AND p.billable = 1 THEN t.duration ELSE 0 END) AS approvedBillableSeconds,
+                SUM(CASE WHEN t.rejected = 1 THEN t.duration ELSE 0 END) AS rejectedSeconds
+            FROM Timesheet t
+            LEFT JOIN Project p ON t.projectId = p.id AND p.workspaceId = 3
+            LEFT JOIN User u ON p.pmId = u.id AND u.workspaceId = 3
+            WHERE t.date >= :start_date
+            AND t.date < :end_date
+            GROUP BY p.id, p.name, p.billable, p.pmId, u.name
+            ORDER BY p.name
+        """)
+        proj_result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+
+        project_summary = []
+        for row in proj_result:
+            project_summary.append({
+                "projectId": row.projectId,
+                "projectName": row.projectName or "Unknown",
+                "billable": "Yes" if row.billable else "No",
+                "pmId": row.pmId,
+                "pmName": row.pmName or "",
+                "statusName": row.statusName or "",
+                "totalWorkedSeconds": int(row.totalWorkedSeconds or 0),
+                "approvedBillableSeconds": int(row.approvedBillableSeconds or 0),
+                "rejectedSeconds": int(row.rejectedSeconds or 0)
+            })
+        return project_summary
