@@ -179,11 +179,11 @@ class SharePointExcelService:
     ) -> tuple:
         try:
             type_file_map = {
-                "timesheets": f"{self.file_name}_Weekly_Timesheets.xlsx",
-                "summary":    f"{self.file_name}_Weekly_Summary.xlsx",
-                "project":    f"{self.file_name}_Project_Summary.xlsx",
+                "timesheets": "Weekly_Timesheets.xlsx",
+                "summary":    "Weekly_Summary.xlsx",
+                "project":    "Project_Summary.xlsx",
             }
-            file_name = type_file_map.get(sheet_type, f"{self.file_name}_{sheet_type}.xlsx")
+            file_name = type_file_map.get(sheet_type, f"{sheet_type}.xlsx")
             tab_name  = self._get_tab_name(week_start)
             logger.info(f"[{sheet_type}] Target file: '{file_name}' | New tab: '{tab_name}'")
 
@@ -447,11 +447,11 @@ class SharePointExcelService:
     def get_file_url(self, week_start: datetime, sheet_type: str = "timesheets") -> str:
         """Get the SharePoint URL for a specific report type's permanent file."""
         type_file_map = {
-            "timesheets": f"{self.file_name}_Weekly_Timesheets.xlsx",
-            "summary":    f"{self.file_name}_Weekly_Summary.xlsx",
-            "project":    f"{self.file_name}_Project_Summary.xlsx",
+            "timesheets": "Weekly_Timesheets.xlsx",
+            "summary":    "Weekly_Summary.xlsx",
+            "project":    "Project_Summary.xlsx",
         }
-        file_name = type_file_map.get(sheet_type, f"{self.file_name}_{sheet_type}.xlsx")
+        file_name = type_file_map.get(sheet_type, f"{sheet_type}.xlsx")
 
         try:
             url = (
