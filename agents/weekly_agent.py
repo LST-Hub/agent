@@ -7,7 +7,7 @@ from datetime import date, timedelta
 from database.connection import get_db_session
 from services.timesheet_service import TimesheetService
 from services.email_service import EmailService
-from utils.date_utils import get_current_date, is_weekend, is_holiday
+from utils.date_utils import get_current_date, is_weekend, is_holiday, is_floater_holiday
 from utils.email_resolver import EmailResolver
 from config.settings import settings
 from typing import List, Dict
@@ -87,6 +87,9 @@ class WeeklyAgent:
                 # Skip ignored users
                 if self._should_ignore_user(user.id):
                     continue
+
+                if is_floater_holiday(target_date, user.id):
+                    continue
                
                 # Initialize user entry if not exists
                 if user.id not in user_missing_data:
@@ -116,6 +119,9 @@ class WeeklyAgent:
                 
                 # Skip ignored users
                 if self._should_ignore_user(user.id):
+                    continue
+
+                if is_floater_holiday(target_date, user.id):
                     continue
                 
                 # Initialize user entry if not exists

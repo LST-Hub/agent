@@ -16,8 +16,14 @@
     "name": "Shivaji Maharaj Jayanti"
   },
   {
+    "date": "2026-03-19",
+    "name": "Gudi Padawa - Marathi Nav Varsh"
+  },
+  {
     "date": "2026-05-27",
-    "name": "Bakrid (Eid ul-Adha)"
+    "name": "Bakrid (Eid ul-Adha)",
+    "type": "floater",
+    "employee_ids": [33]
   },
   {
     "date": "2026-08-28",

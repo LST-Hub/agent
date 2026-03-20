@@ -10,7 +10,7 @@ from services.email_service import EmailService
 from utils.date_utils import get_current_date
 from utils.email_resolver import EmailResolver
 from config.settings import settings
-from utils.date_utils import is_weekend, is_holiday
+from utils.date_utils import is_weekend, is_holiday, is_floater_holiday
 from typing import List
 import json
 import os
@@ -116,12 +116,11 @@ class DailyAgent:
             
             for record in missing_records:
                 user = record['user']
-                missing_date = record['missing_date']
-                
                 if self._should_ignore_user(user.id):
-                    logger.debug(f"Skipping ignored user {user.id} - {user.email}")
                     continue
-                
+                if is_floater_holiday(target_date, user.id):
+                    logger.debug(f"Skipping floater holiday {target_date} for user {user.id}")
+                    continue
                 if user.id not in user_timesheet_issues:
                     user_timesheet_issues[user.id] = {
                         'user': user,
@@ -130,7 +129,7 @@ class DailyAgent:
                     }
                 
                 # Mark as completely missing
-                user_timesheet_issues[user.id]['missing_dates'][missing_date] = 0
+                user_timesheet_issues[user.id]['missing_dates'][target_date] = 0
             
             # Check for incomplete timesheets (underlogged hours)
             idle_records = service.get_idle_users(target_date)
@@ -140,6 +139,10 @@ class DailyAgent:
                 
                 if self._should_ignore_user(user.id):
                     logger.debug(f"Skipping ignored user {user.id} - {user.email}")
+                    continue
+
+                if is_floater_holiday(target_date, user.id):
+                    logger.debug(f"Skipping floater holiday {target_date} for user {user.id}")
                     continue
                 
                 if user.id not in user_timesheet_issues:
@@ -224,12 +227,11 @@ class DailyAgent:
         
         for record in idle_records:
             user = record['user']
-            
-            # Skip ignored users
             if self._should_ignore_user(user.id):
-                logger.debug(f"Skipping ignored user {user.id} - {user.email}")
                 continue
-                
+            if is_floater_holiday(target_date, user.id):
+                logger.debug(f"Skipping floater holiday {target_date} for user {user.id}")
+                continue
             logger.info(f"User {user.email} has {record['idle_hours']} idle hours.")
             
             # Resolve office emails
@@ -255,7 +257,7 @@ class DailyAgent:
             
     #         # Skip ignored users
     #         if self._should_ignore_user(user.id)
-    #             logger.debug(fSkipping ignored user {user.id} - {user.email})
+    #             logger.debug(fSkipping ignored user {user.id} - {user.email}")
     #             continue
                 
     #         logger.info(fUser {user.email} has overtime.)
@@ -314,7 +316,7 @@ class DailyAgent:
             
     #         # Skip ignored users
     #         if self._should_ignore_user(user.id)
-    #             logger.debug(fSkipping ignored user {user.id} - {user.email})
+    #             logger.debug(fSkipping ignored user {user.id} - {user.email}")
     #             continue
     #         # TODO Notify PM
     
@@ -371,7 +373,7 @@ class DailyAgent:
     #                 user = user_data['user']
     #                 dates = sorted(user_data['dates'])
     #                 dates_str = , .join(str(d) for d in dates)
-    #                 body_lines.append(f  - {user.name} ({user.email}) {dates_str})
+    #                 body_lines.append(f  - {user.name} ({user.email}) {dates_str}")
             
     #         body_lines.append(nPlease follow up with your team members.)
             
