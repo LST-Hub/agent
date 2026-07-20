@@ -1,0 +1,28 @@
+# Secrets — never bake into the image (passed at runtime via --env-file)
+.env
+.envrc
+
+# Local virtualenv and build artifacts
+.venv
+env/
+venv/
+agent.egg-info/
+build/
+dist/
+
+# Git / CI
+.git
+.github
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Editor / OS cruft
+.vscode/
+.idea/
+.DS_Store
+
+# Render config (not used on the VPS)
+render.yaml

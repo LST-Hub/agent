@@ -1,0 +1,18 @@
+# Build once:   docker compose build
+# Run a task:   docker compose run --rm agent daily
+#               docker compose run --rm agent weekly
+#               docker compose run --rm agent monday-summary
+#
+# The scheduling itself is done by the host's crontab calling these commands
+# (see the crontab block in the deployment notes). Containers are ephemeral:
+# each run starts, does the job, and exits.
+
+services:
+  agent:
+    build: .
+    image: agent:latest
+    env_file:
+      - .env
+    # No ports/volumes: this is a batch job whose output is email.
+    # `restart: no` is the default — we do NOT want it looping.
+    restart: "no"
