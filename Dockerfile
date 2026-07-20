@@ -1,12 +1,15 @@
 # syntax=docker/dockerfile:1
 
-# uv-based image, Python 3.12 (matches .python-version and uv.lock)
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+# Official Python 3.12 image from Docker Hub (matches .python-version and uv.lock)
+FROM python:3.12-slim-bookworm
 
 # Faster, quieter, reproducible installs
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1
+
+# Install uv (the fast package manager) into the base image
+RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
