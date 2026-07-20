@@ -8,6 +8,7 @@ import os
 
 # Cache for holidays loaded from JSON
 _holidays_cache = None
+_floater_holidays_cache = None
 
 def _load_holidays():
     """Load holidays from JSON file."""
@@ -27,6 +28,8 @@ def _load_holidays():
                 # Convert string dates to date objects
                 _holidays_cache = set()
                 for holiday in holidays_data:
+                    if holiday.get('type') == 'floater':
+                        continue
                     holiday_date = datetime.strptime(holiday['date'], '%Y-%m-%d').date()
                     _holidays_cache.add(holiday_date)
                 return _holidays_cache
@@ -38,6 +41,39 @@ def _load_holidays():
         print(f"Error loading holidays: {e}")
         _holidays_cache = set()
         return _holidays_cache
+
+def _load_floater_holidays():
+    """Load floater holidays mapped by date -> set of employee IDs."""
+    global _floater_holidays_cache
+    if _floater_holidays_cache is not None:
+        return _floater_holidays_cache
+    
+    try:
+        # Get the path to the holidays JSON file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        holidays_file = os.path.join(project_root, 'data', 'holidays.json')
+        
+        if os.path.exists(holidays_file):
+            with open(holidays_file, 'r') as f:
+                holidays_data = json.load(f)
+                # Convert string dates to date objects
+                _floater_holidays_cache = {}
+                for holiday in holidays_data:
+                    if holiday.get('type') == "floater":
+                        #date_str = holiday['date']
+                        holiday_date = datetime.strptime(holiday['date'], '%Y-%m-%d').date()
+                        employee_ids = set(holiday.get('employee_ids', []))
+                        _floater_holidays_cache[holiday_date] = employee_ids
+                return _floater_holidays_cache
+        else:
+            # If file doesn't exist, return empty set
+            _floater_holidays_cache = {}
+            return _floater_holidays_cache
+    except Exception as e:
+        print(f"Error loading floater holidays: {e}")
+        _floater_holidays_cache = {}
+        return _floater_holidays_cache
 
 def is_weekend(d: date) -> bool:
     """Returns True if date is Saturday or Sunday."""
@@ -51,6 +87,11 @@ def is_holiday(d: date) -> bool:
     """
     holidays = _load_holidays()
     return d in holidays
+
+def is_floater_holiday(d: date, user_id: int) -> bool:
+    """Returns True if date is a floater holiday for this specific user."""
+    floaters = _load_floater_holidays()
+    return d in floaters and user_id in floaters[d]
 
 def get_current_date() -> date:
     """Returns current system date."""
