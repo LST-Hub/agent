@@ -2,10 +2,24 @@
 # Run a task:   docker compose run --rm agent daily
 #               docker compose run --rm agent weekly
 #               docker compose run --rm agent monday-summary
+#               docker compose run --rm agent project-health
+#               docker compose run --rm agent daily-ops
+#               docker compose run --rm agent followups
+#               docker compose run --rm agent followups-list
+#               docker compose run --rm agent forecast
+#               docker compose run --rm agent teams-allocations
 #
 # The scheduling itself is done by the host's crontab calling these commands
 # (see the crontab block in the deployment notes). Containers are ephemeral:
-# each run starts, does the job, and exits.
+# each run starts, does the job, and exits. Schedule teams-allocations before
+# daily-ops and forecast so they use the latest Teams plans.
+#
+# agent-db is the agent's own PostgreSQL (follow-ups, notification log, Teams
+# day plans). Tables are created on first use. It is started automatically by
+# `docker compose run` and keeps running; its data lives in the agent-db-data
+# volume. Requires in .env:
+#   AGENT_DB_PASSWORD=<strong password>
+#   AGENT_DATABASE_URL=postgresql+psycopg2://ops_agent:<same password>@agent-db:5432/ops_agent
 
 services:
   agent:
@@ -13,6 +27,30 @@ services:
     image: agent:latest
     env_file:
       - .env
+    depends_on:
+      agent-db:
+        condition: service_healthy
     # No ports/volumes: this is a batch job whose output is email.
     # `restart: no` is the default — we do NOT want it looping.
     restart: "no"
+
+  agent-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ops_agent
+      POSTGRES_USER: ops_agent
+      POSTGRES_PASSWORD: ${AGENT_DB_PASSWORD:?Set AGENT_DB_PASSWORD in .env}
+    volumes:
+      - agent-db-data:/var/lib/postgresql/data
+    # Loopback only: reachable from the VPS itself (or an SSH tunnel), never from the internet
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ops_agent -d ops_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  agent-db-data:

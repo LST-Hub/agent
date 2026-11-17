@@ -54,3 +54,40 @@ class ProjectRepository(BaseRepository[Project]):
         query = text("SELECT * FROM Project WHERE active = 1 AND workspaceId = 3")
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
+
+    def get_projects_for_matching(self) -> List[dict]:
+        """All workspace projects (active and inactive) with their status name, for matching free-text names."""
+        query = text("""
+            SELECT p.id, p.name, p.active,
+                   (SELECT s.name FROM Status s WHERE s.id = p.statusId AND s.workspaceId = 3 LIMIT 1) AS statusName
+            FROM Project p
+            WHERE p.workspaceId = 3
+        """)
+        return [dict(row._mapping) for row in self.session.execute(query).fetchall()]
+
+    def get_active_projects_with_effort(self) -> List[dict]:
+        """
+        Fetch active projects with PM, status name, logged effort (seconds,
+        excluding rejected timesheets) and the last date time was logged.
+        """
+        query = text("""
+            SELECT
+                p.id, p.name, p.pmId, p.startDate, p.estimatedTime,
+                p.estimatedEndDate, p.actualEndDate, p.billable,
+                u.name AS pmName, u.email AS pmEmail,
+                (SELECT s.name FROM Status s WHERE s.id = p.statusId AND s.workspaceId = 3 LIMIT 1) AS statusName,
+                (SELECT pt.name FROM ProjectType pt WHERE pt.id = p.projectTypeId AND pt.workspaceId = 3 LIMIT 1) AS projectTypeName,
+                COALESCE(ts.workedSeconds, 0) AS workedSeconds,
+                ts.lastLoggedDate
+            FROM Project p
+            LEFT JOIN User u ON u.id = p.pmId AND u.workspaceId = 3
+            LEFT JOIN (
+                SELECT projectId, SUM(duration) AS workedSeconds, MAX(date) AS lastLoggedDate
+                FROM Timesheet
+                WHERE rejected = 0
+                GROUP BY projectId
+            ) ts ON ts.projectId = p.id
+            WHERE p.active = 1 AND p.workspaceId = 3
+        """)
+        result = self.session.execute(query).fetchall()
+        return [dict(row._mapping) for row in result]

@@ -46,6 +46,25 @@ class ResourceAllocationRepository(BaseRepository[ResourceAllocation]):
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
 
+    def get_user_project_day_allocations(self, start_date: date, end_date: date) -> List[dict]:
+        """
+        Allocated seconds per active user, project and date. Repeating allocations
+        are stored expanded (one row per date), so grouping on `date` is sufficient.
+        """
+        query = text("""
+            SELECT ra.allocatedUserId AS userId, u.name AS userName, ra.projectId,
+                   p.name AS projectName, pm.name AS pmName, ra.date, SUM(ra.duration) AS seconds
+            FROM ResourceAllocation ra
+            INNER JOIN User u ON u.id = ra.allocatedUserId AND u.workspaceId = 3 AND u.active = 1
+            LEFT JOIN Project p ON p.id = ra.projectId AND p.workspaceId = 3
+            LEFT JOIN User pm ON pm.id = p.pmId AND pm.workspaceId = 3
+            WHERE ra.workspaceId = 3
+            AND ra.date >= :start_date AND ra.date <= :end_date
+            GROUP BY ra.allocatedUserId, u.name, ra.projectId, p.name, pm.name, ra.date
+        """)
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        return [dict(row._mapping) for row in result]
+
     def get_by_date(self, target_date: date) -> List[ResourceAllocation]:
         """Fetch allocations active on a specific date."""
         # This one is tricky if allocations repeat. "repeatId" and "repetationType" suggest complex logic.

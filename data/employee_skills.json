@@ -1,0 +1,410 @@
+{
+  "_note": "List each person's skills, primary skill first (e.g. NetSuite, Salesforce, Custom Development, QA, DevOps). The forecast counts a person's hours once, under the primary skill, and also groups people by role. Leave skills empty if unknown. New delivery staff are added by `python main.py forecast-skills-template`; existing skills are never overwritten. A practice skill sheet (CSV) is imported with `python main.py forecast-skills-import <file.csv> [--practice NAME]`, which updates the people it matches.",
+  "employees": {
+    "106": {
+      "name": "Arpita Bhalerao",
+      "skills": []
+    },
+    "104": {
+      "name": "Atharva Korde ",
+      "skills": [
+        "NetSuite",
+        "Procurement",
+        "Dashboards",
+        "Saved Searche",
+        "Suite Flow"
+      ],
+      "role": "NetSuite Functional Developer",
+      "level": "Beginner"
+    },
+    "109": {
+      "name": "Durgesh Bachhav",
+      "skills": []
+    },
+    "62": {
+      "name": "Kalpesh  Zunjarrao",
+      "skills": [
+        "NetSuite",
+        "Dashboards",
+        "KPI Monitoring",
+        "Saved Searches",
+        "Reporting Tools",
+        "SuiteScript",
+        "SuiteFlow",
+        "SuiteTalk (SOAP / REST APIs)",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlets"
+      ],
+      "role": "NetSuite Developer",
+      "level": "Advanced"
+    },
+    "63": {
+      "name": "Mahesh Sathe ",
+      "skills": [
+        "NetSuite",
+        "Inventory Management",
+        "Procurement",
+        "Order Management",
+        "Dashboards",
+        "Saved Searches",
+        "KPI Monitoring",
+        "SuiteScript",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlets",
+        "SuiteFlow",
+        "Multi-Currency",
+        "Reporting Tools",
+        "SuiteTalk (SOAP / REST APIs)",
+        "Warehouse Management System (WMS)",
+        "Supply Chain Management"
+      ],
+      "role": "NetSuite Developer",
+      "level": "Intermediate to Advanced"
+    },
+    "48": {
+      "name": "Mayur Malode",
+      "skills": [
+        "NetSuite",
+        "Procurement",
+        "Order Management",
+        "Dashboards",
+        "KPI Monitoring",
+        "Saved Searches",
+        "SuiteScript",
+        "SuiteFlow",
+        "SuiteTalk (SOAP / REST APIs)",
+        "SuiteBuilder",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlets"
+      ],
+      "role": "NetSuite Techno-Functional Consultant",
+      "level": "Advanced"
+    },
+    "33": {
+      "name": "Mohd Taher Sayyad",
+      "skills": []
+    },
+    "6": {
+      "name": "Neha Jadhav",
+      "skills": [
+        "NetSuite",
+        "Inventory Management",
+        "Procurement / Purchasing",
+        "Order Management",
+        "Warehouse Management (WMS)",
+        "Work Orders",
+        "Bill of Materials (BOM)",
+        "Saved Searches",
+        "Financial Reporting",
+        "KPI Dashboards"
+      ],
+      "role": "Sr. NetSuite Technical Consultant",
+      "level": "Expert"
+    },
+    "81": {
+      "name": "PV Vasanth",
+      "skills": []
+    },
+    "93": {
+      "name": "Poonam Sulakhe",
+      "skills": [
+        "NetSuite",
+        "Procurement",
+        "Order Management",
+        "Project management",
+        "Report Customization",
+        "Dashboard design",
+        "suite Analytics",
+        "Inventory Management",
+        "Suite Billing",
+        "Saved Searches",
+        "SuiteScript",
+        "Suiteflow",
+        "Integration",
+        "Suite Builder",
+        "Suite Bundler"
+      ],
+      "role": "NetSuite Techno-Functional Consultant",
+      "level": "Advanced"
+    },
+    "90": {
+      "name": "Prajwal Bankar",
+      "skills": []
+    },
+    "9": {
+      "name": "Prakash Bagul",
+      "skills": [
+        "NetSuite",
+        "SuiteScript 2.x",
+        "SuiteFlow",
+        "SuiteTalk (SOAP & REST Web Services)",
+        "RESTlets",
+        "SuiteCloud Development Framework (SDF)",
+        "SuiteBundler",
+        "SuiteBuilder",
+        "Custom Records & Custom Forms",
+        "Client Scripts",
+        "User Event Scripts",
+        "Map/Reduce Scripts",
+        "Scheduled Scripts",
+        "Suitelets",
+        "Saved Searches",
+        "SuiteAnalytics / SuiteQL",
+        "File Cabinet Management",
+        "Shopify Integration",
+        "SharePoint",
+        "Outlook",
+        "OneDrive",
+        "Excel Add-ins",
+        "Teams / Graph API",
+        "Google Drive",
+        "Google Sheets",
+        "Google Vision OCR",
+        "Salesforce Integration",
+        "Plaid",
+        "CommBiz",
+        "Wells Fargo",
+        "Bank of Montreal",
+        "OCR / AI-based API integrations",
+        "General Ledger",
+        "Accounts Payable",
+        "Accounts Receivable",
+        "Vendor Bills",
+        "Invoice Processing",
+        "Bank Reconciliation",
+        "Revenue Recognition",
+        "Financial Reporting",
+        "Tax Management",
+        "Fixed Assets (likely working knowledge)",
+        "Sales Orders",
+        "Purchase Orders",
+        "Fulfillment",
+        "Shipping / Tracking Sync",
+        "Return Authorizations",
+        "Billing / Invoicing",
+        "Customer Pricing",
+        "Subscription-style flows",
+        "Inventory Management",
+        "Advanced Inventory",
+        "Bin Management",
+        "Transfer Orders",
+        "RF-SMART / WMS integrations",
+        "Fulfillment automation",
+        "Leads",
+        "Opportunities",
+        "Customer Records",
+        "Email-to-record automation",
+        "Activity tracking",
+        "CRM integrations",
+        "SuiteCommerce-related architecture",
+        "Shopify migration architecture",
+        "Product sync",
+        "Inventory sync",
+        "Pricing sync",
+        "Customer sync",
+        "Order sync",
+        "OCR Processing",
+        "Vendor Bill Automation",
+        "Sales Order OCR Creation",
+        "File Storage Automation",
+        "Document Management",
+        "External Storage Sync",
+        "Approval Workflows",
+        "KPI creation",
+        "Dashboard portlets",
+        "Trend Graphs",
+        "SuiteQL reporting",
+        "Health Check reporting"
+      ],
+      "role": "NetSuite Solution Architect",
+      "level": "Expert"
+    },
+    "16": {
+      "name": "Pritish Kulkarni",
+      "skills": [
+        "NetSuite",
+        "Financial Management",
+        "Planning and Budgeting",
+        "Billing",
+        "Revenue Management",
+        "Fixed Assets Management",
+        "Tax Management",
+        "Financial Reporting",
+        "Inventory Management",
+        "Procurement",
+        "Supply Chain Management",
+        "Demand Planning",
+        "Supply Planning",
+        "Order Management",
+        "Work Orders & Assemblies",
+        "Manufacturing Routing",
+        "Work in Process (WIP)",
+        "Quality Management",
+        "Advanced Manufacturing",
+        "Customer Service Management",
+        "Partner Relationship Management",
+        "HR Management",
+        "Payroll",
+        "Project Management",
+        "NetSuite OneWorld",
+        "Multi-Subsidiary Management",
+        "Multi-Currency",
+        "Multi-Language",
+        "Multi-Tax Compliance",
+        "SuiteScript",
+        "SuiteFlow",
+        "SuiteTalk (SOAP / REST APIs)",
+        "SuiteBuilder",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlets",
+        "Wholesale Distribution",
+        "Retail",
+        "Manufacturing",
+        "Software / SaaS",
+        "Services"
+      ],
+      "role": "NetSuite Solution Architect",
+      "level": "Expert"
+    },
+    "24": {
+      "name": "Rohan Shinde",
+      "skills": [
+        "NetSuite",
+        "Financial management",
+        "Reveneu management",
+        "Billing",
+        "Financial Reporting",
+        "Procurement",
+        "Saved Search",
+        "KPI Dashbord",
+        "SuiteScript",
+        "SuiteFlow",
+        "SuiteTalk",
+        "SuiteBuilder",
+        "SuiteBundler",
+        "SDF"
+      ],
+      "role": "NetSuite Solution Architect",
+      "level": "Expert"
+    },
+    "45": {
+      "name": "Rushikesh Sonawane",
+      "skills": [
+        "NetSuite",
+        "Financial Management",
+        "Billing",
+        "Account Reconciliation",
+        "Procurement",
+        "Dashboards",
+        "KPI Monitoring",
+        "Saved Searches",
+        "SuiteScript",
+        "SuiteFlow",
+        "SuiteBuilder",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlets"
+      ],
+      "role": "NetSuite Techno-Functional Consultant",
+      "level": "Advanced"
+    },
+    "64": {
+      "name": "Rutik  Sarode",
+      "skills": [
+        "NetSuite",
+        "Inventory Management",
+        "Procurement",
+        "Order Management",
+        "Warehouse Management System (WMS)",
+        "Dashboards",
+        "Saved Searches",
+        "KPI Monitoring",
+        "SuiteScript",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlets",
+        "SuiteFlow",
+        "Multi-Currency",
+        "Reporting Tools",
+        "Account Reconciliation",
+        "SuiteTalk (SOAP / REST APIs)",
+        "Supply Chain Management"
+      ],
+      "role": "NetSuite Developer",
+      "level": "Intermediate to Advanced"
+    },
+    "60": {
+      "name": "Sachin Ubale",
+      "skills": []
+    },
+    "101": {
+      "name": "Sakshi Kardak",
+      "skills": []
+    },
+    "55": {
+      "name": "Sanket Lokhande",
+      "skills": []
+    },
+    "14": {
+      "name": "Sejal Sonawane",
+      "skills": []
+    },
+    "100": {
+      "name": "Shubham Kharote",
+      "skills": []
+    },
+    "46": {
+      "name": "Swapnil Chaughule",
+      "skills": [
+        "NetSuite",
+        "Procurement",
+        "Dashboards",
+        "KPI Monitoring",
+        "Saved Searches",
+        "SuiteScript",
+        "SuiteFlow",
+        "SuiteTalk (SOAP / REST APIs)",
+        "SuiteBuilder",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlet",
+        "Integrations"
+      ],
+      "role": "NetSuite Techno-Functional Consultant",
+      "level": "Advanced"
+    },
+    "99": {
+      "name": "Umesh Yadav",
+      "skills": []
+    },
+    "65": {
+      "name": "Varad Khaire",
+      "skills": []
+    },
+    "47": {
+      "name": "saurabh chaugule",
+      "skills": [
+        "NetSuite",
+        "Procurement",
+        "Order Management",
+        "Dashboards",
+        "KPI Monitoring",
+        "Saved Searches",
+        "SuiteScript",
+        "SuiteFlow",
+        "SuiteTalk (SOAP / REST APIs)",
+        "SuiteBuilder",
+        "SuiteBundler",
+        "SuiteCloud Development Framework (SDF)",
+        "RESTlet",
+        "Integrations"
+      ],
+      "role": "NetSuite Developer",
+      "level": "Intermediate to Advanced"
+    }
+  }
+}

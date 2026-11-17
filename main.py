@@ -4,6 +4,15 @@ Usage:
     python main.py daily
     python main.py weekly
     python main.py weekly-report
+    python main.py project-health [--dry-run]
+    python main.py daily-ops [--dry-run]
+    python main.py followups [--dry-run]
+    python main.py followups-list
+    python main.py followups-close <id> [note]
+    python main.py forecast [--dry-run]
+    python main.py forecast-skills-template
+    python main.py forecast-skills-import <file.csv> [--practice NAME]
+    python main.py teams-allocations [--sample FILE] [--no-save]
 
 """
 import sys
@@ -14,6 +23,11 @@ from agents.daily_agent import DailyAgent
 from agents.weekly_agent import WeeklyAgent
 from agents.weekly_report_agent import WeeklyReportAgent
 from agents.weekly_billable_project_report_agent import BillableReportAgent
+from agents.project_health_agent import ProjectHealthAgent
+from agents.daily_operations_agent import DailyOperationsAgent
+from agents.followup_agent import FollowUpAgent, list_followups, close_followup
+from agents.forecast_agent import ForecastAgent, refresh_skills_template, import_skills_sheet
+from agents.teams_allocation_agent import TeamsAllocationAgent
 from services.email_service import EmailService
 from config.settings import settings
 from utils.date_utils import get_previous_week_start_end
@@ -102,7 +116,7 @@ def run_monday_summary():
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python main.py [daily|weekly|weekly-report|weekly-billable-report|monday-summary|tree]")
+        print("Usage: python main.py [daily|weekly|weekly-report|weekly-billable-report|project-health [--dry-run]|daily-ops [--dry-run]|followups [--dry-run]|followups-list|followups-close <id> [note]|forecast [--dry-run]|forecast-skills-template|teams-allocations [--sample FILE] [--no-save]|monday-summary|tree]")
         sys.exit(1)
 
     command = sys.argv[1].lower()
@@ -124,6 +138,41 @@ def main():
             logger.info("Running Weekly Billable Report Agent...")
             agent = BillableReportAgent()
             agent.run()
+        elif command == "project-health":
+            logger.info("Running Project Health Agent...")
+            agent = ProjectHealthAgent(dry_run="--dry-run" in sys.argv)
+            agent.run()
+        elif command == "daily-ops":
+            logger.info("Running Daily Operations Agent...")
+            agent = DailyOperationsAgent(dry_run="--dry-run" in sys.argv)
+            agent.run()
+        elif command == "followups":
+            logger.info("Running Follow-up Agent...")
+            agent = FollowUpAgent(dry_run="--dry-run" in sys.argv)
+            agent.run()
+        elif command == "followups-list":
+            list_followups()
+        elif command == "followups-close":
+            if len(sys.argv) < 3:
+                print("Usage: python main.py followups-close <id> [note]")
+                sys.exit(1)
+            close_followup(int(sys.argv[2]), " ".join(sys.argv[3:]))
+        elif command == "forecast":
+            logger.info("Running Forecast Agent...")
+            agent = ForecastAgent(dry_run="--dry-run" in sys.argv)
+            agent.run()
+        elif command == "forecast-skills-template":
+            refresh_skills_template()
+        elif command == "forecast-skills-import":
+            if len(sys.argv) < 3:
+                print("Usage: python main.py forecast-skills-import <file.csv> [--practice NAME]")
+                sys.exit(1)
+            practice = sys.argv[sys.argv.index("--practice") + 1] if "--practice" in sys.argv else None
+            import_skills_sheet(sys.argv[2], practice)
+        elif command == "teams-allocations":
+            logger.info("Running Teams Allocation Agent...")
+            sample = sys.argv[sys.argv.index("--sample") + 1] if "--sample" in sys.argv else None
+            TeamsAllocationAgent(sample_path=sample, save=False if "--no-save" in sys.argv else None).run()
         elif command == "monday-summary":
             logger.info("Running Monday Summary Orchestrator...")
             run_monday_summary()
@@ -131,7 +180,7 @@ def main():
             print_tree(".")
         else:
             print(f"Unknown command: {command}")
-            print("Available commands: daily, weekly, weekly-report, weekly-billable-report, monday-summary, tree")
+            print("Available commands: daily, weekly, weekly-report, weekly-billable-report, project-health, daily-ops, followups, followups-list, followups-close, forecast, forecast-skills-template, teams-allocations, monday-summary, tree")
             sys.exit(1)
     except Exception as e:
         logger.error(f"Error executing {command} agent: {e}", exc_info=True)

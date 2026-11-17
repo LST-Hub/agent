@@ -1,0 +1,13 @@
+{
+  "_note": "Names used in the Teams chat that the matcher cannot work out on its own. Map the chat spelling to the exact PM-tool name, e.g. \"Rutu\": \"Rutuja Lohokare\" or \"OP\": \"Order Pilot - Sales Order\". Only needed for names the report lists under 'Needs review'.",
+  "people": {
+    "Neha Lohakane": "Neha Jadhav"
+  },
+  "projects": {
+    "SOC 2": "LST Activities",
+    "SOC 2 Compliance": "LST Activities",
+    "SOC 2 Documentation": "LST Activities",
+    "Archival": "LST NetSuite Data Archival Solution",
+    "OrderPilot": "Order Pilot - Sales Order"
+  }
+}

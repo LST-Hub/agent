@@ -7,6 +7,7 @@ from datetime import date, datetime
 from sqlalchemy import text
 from database.repositories.base import BaseRepository
 from models.schemas import Timesheet, TimesheetStatus, RetractStatus
+from utils.constants import LEAVE_PROJECT_KEYWORDS
 
 class TimesheetRepository(BaseRepository[Timesheet]):
     """
@@ -121,6 +122,63 @@ class TimesheetRepository(BaseRepository[Timesheet]):
         """)
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
+
+    def get_user_project_day_totals(self, start_date: date, end_date: date) -> List[dict]:
+        """
+        Logged seconds per active user, project and date (rejected timesheets excluded).
+        """
+        query = text("""
+            SELECT t.createdById AS userId, u.name AS userName, t.projectId,
+                   COALESCE(p.name, 'Idle') AS projectName, t.date, SUM(t.duration) AS seconds
+            FROM Timesheet t
+            INNER JOIN User u ON u.id = t.createdById AND u.workspaceId = 3 AND u.active = 1
+            LEFT JOIN Project p ON p.id = t.projectId AND p.workspaceId = 3
+            WHERE t.workspaceId = 3
+            AND t.rejected = 0
+            AND t.date >= :start_date AND t.date <= :end_date
+            GROUP BY t.createdById, u.name, t.projectId, p.name, t.date
+        """)
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        return [dict(row._mapping) for row in result]
+
+    def get_entries_missing_ticket(self, start_date: date, end_date: date) -> List[dict]:
+        """
+        Entries without a ticket on projects that require one (Project.ticket = 1),
+        grouped by user and project.
+        """
+        query = text("""
+            SELECT t.createdById AS userId, u.name AS userName, p.id AS projectId,
+                   p.name AS projectName, COUNT(*) AS entries, SUM(t.duration) AS seconds
+            FROM Timesheet t
+            INNER JOIN Project p ON p.id = t.projectId AND p.workspaceId = 3 AND p.ticket = 1
+            INNER JOIN User u ON u.id = t.createdById AND u.workspaceId = 3 AND u.active = 1
+            WHERE t.workspaceId = 3
+            AND t.rejected = 0
+            AND t.date >= :start_date AND t.date <= :end_date
+            AND (t.ticket IS NULL OR TRIM(t.ticket) = '')
+            GROUP BY t.createdById, u.name, p.id, p.name
+        """)
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        return [dict(row._mapping) for row in result]
+
+    def get_billable_entries_short_description(self, start_date: date, end_date: date, min_length: int) -> List[dict]:
+        """
+        Entries on billable projects with a missing or too-short description.
+        """
+        query = text("""
+            SELECT t.createdById AS userId, u.name AS userName, p.name AS projectName,
+                   t.date, t.duration AS seconds, t.description
+            FROM Timesheet t
+            INNER JOIN Project p ON p.id = t.projectId AND p.workspaceId = 3 AND p.billable = 1
+            INNER JOIN User u ON u.id = t.createdById AND u.workspaceId = 3 AND u.active = 1
+            WHERE t.workspaceId = 3
+            AND t.rejected = 0
+            AND t.date >= :start_date AND t.date <= :end_date
+            AND (t.description IS NULL OR CHAR_LENGTH(TRIM(t.description)) < :min_length)
+            ORDER BY u.name, t.date
+        """)
+        result = self.session.execute(query, {"start_date": start_date, "end_date": end_date, "min_length": min_length}).fetchall()
+        return [dict(row._mapping) for row in result]
 
     def get_missing_timesheets(self, start_date: date, end_date: date) -> List[int]:
         """
@@ -257,8 +315,7 @@ class TimesheetRepository(BaseRepository[Timesheet]):
         """)
         result = self.session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
 
-        # Keywords that indicate leave projects
-        LEAVE_KEYWORDS = {"leave", "full day leave", "half day leave", "sick leave", "annual leave", "public holiday"}
+        LEAVE_KEYWORDS = LEAVE_PROJECT_KEYWORDS
 
         def format_duration(seconds):
             if not seconds:

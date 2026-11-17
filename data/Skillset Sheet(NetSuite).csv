@@ -1,0 +1,117 @@
+Sr No,Resource Name,Role,Skill Sets,Expertise Level
+2,Prakash,NetSuite Solution Architect,"Core Technical / Development Modules
+ 	SuiteScript 2.x
+ 	SuiteFlow
+ 	SuiteTalk (SOAP & REST Web Services)
+ 	RESTlets
+ 	SuiteCloud Development Framework (SDF)
+ 	SuiteBundler
+ 	SuiteBuilder
+ 	Custom Records & Custom Forms
+	Client Scripts
+	User Event Scripts
+	Map/Reduce Scripts
+	Scheduled Scripts
+	Suitelets
+	Saved Searches
+	SuiteAnalytics / SuiteQL
+	File Cabinet Management
+
+Integration Modules
+	Shopify Integration
+	Microsoft
+		SharePoint
+		Outlook
+		OneDrive
+		Excel Add-ins
+		Teams / Graph API
+	Google
+		Google Drive
+		Google Sheets
+		Google Vision OCR
+	Salesforce Integration
+	Banking Integrations
+		Plaid
+		CommBiz
+		Wells Fargo
+		Bank of Montreal
+		OCR / AI-based API integrations
+
+Financial Modules
+	General Ledger
+	Accounts Payable
+	Accounts Receivable
+	Vendor Bills
+	Invoice Processing
+	Bank Reconciliation
+	Revenue Recognition
+	Financial Reporting
+	Tax Management
+	Fixed Assets (likely working knowledge)
+
+Order Management
+	Sales Orders
+	Purchase Orders
+	Fulfillment
+	Shipping / Tracking Sync
+	Return Authorizations
+	Billing / Invoicing
+	Customer Pricing
+	Subscription-style flows
+
+Inventory & Warehouse
+	Inventory Management
+	Advanced Inventory
+	Bin Management
+	Transfer Orders
+	RF-SMART / WMS integrations
+	Fulfillment automation
+
+CRM / Customer Data
+	Leads
+	Opportunities
+	Customer Records
+	Email-to-record automation
+	Activity tracking
+	CRM integrations
+
+Commerce
+	SuiteCommerce-related architecture
+	Shopify migration architecture
+	Product sync
+	Inventory sync
+	Pricing sync
+	Customer sync
+	Order sync
+
+Document / Workflow Automation
+	OCR Processing
+	Vendor Bill Automation
+	Sales Order OCR Creation
+	File Storage Automation
+	Document Management
+	External Storage Sync
+	Approval Workflows
+
+Analytics / Reporting
+	Saved Searches
+	KPI creation
+	Dashboard portlets
+	Trend Graphs
+	SuiteQL reporting
+	Health Check reporting",Expert
+3,Pritish,NetSuite Solution Architect,"Financial Management, Planning and Budgeting, Billing, Revenue Management, Fixed Assets Management, Tax Management, Financial Reporting, Inventory Management, Procurement, Supply Chain Management, Demand Planning, Supply Planning, Order Management, Work Orders & Assemblies, Manufacturing Routing, Work in Process (WIP), Quality Management, Advanced Manufacturing, Customer Service Management, Partner Relationship Management, HR Management, Payroll, Project Management, NetSuite OneWorld, Multi-Subsidiary Management, Multi-Currency, Multi-Language, Multi-Tax Compliance, SuiteScript, SuiteFlow, SuiteTalk (SOAP / REST APIs), SuiteBuilder, SuiteBundler, SuiteCloud Development Framework (SDF), RESTlets, Wholesale Distribution, Retail, Manufacturing, Software / SaaS, Services",Expert
+4,Rohan,NetSuite Solution Architect,"Financial management, Reveneu management, Billing, Financial Reporting, Procurement, Saved Search, KPI Dashbord, SuiteScript, SuiteFlow, SuiteTalk, SuiteBuilder, SuiteBundler, SDF, SuiteScript, ",Expert
+,Neha,Sr. NetSuite Technical Consultant,"Inventory Management , Procurement / Purchasing, Order Management ,  Warehouse Management (WMS), Work Orders, Bill of Materials (BOM), Saved Searches, Financial Reporting, KPI Dashboards, ",Expert
+,Rushikesh,NetSuite Techno-Functional Consultant,"Financial Management, Billing, Account Reconciliation, Procurement, Dashboards, KPI Monitoring, Saved Searches, SuiteScript, SuiteFlow, SuiteBuilder, SuiteBundler, SuiteCloud Development Framework (SDF), RESTlets",Advanced
+,Poonam,NetSuite Techno-Functional Consultant,"Procurement, Order Management, Project management, Report Customization, Dashboard design, suite Analytics, Inventory Management, Suite Billing, Saved Searches, SuiteScript, Suiteflow, Integration, Suite Builder, Suite Bundler, ",Advanced
+,Kalpesh,NetSuite Developer,"Dashboards,KPI Monitoring,Saved Searches,Reporting Tools,SuiteScript,SuiteFlow,SuiteTalk (SOAP / REST APIs),SuiteBundler,SuiteCloud Development Framework (SDF),RESTlets,",Advanced
+,Rutik,NetSuite Developer,"Inventory Management,Procurement,Order Management,Warehouse Management System (WMS),Dashboards,Saved Searches,KPI Monitoring,SuiteScript,SuiteBundler,SuiteCloud Development Framework (SDF),RESTlets,SuiteFlow,Multi-Currency,Reporting Tools,Account Reconciliation,SuiteTalk (SOAP / REST APIs), Supply Chain Management",Intermediate to Advanced
+,Mahesh,NetSuite Developer,"Inventory Management,Procurement,Order Management,Dashboards,Saved Searches,KPI Monitoring,SuiteScript,SuiteBundler,SuiteCloud Development Framework (SDF),RESTlets,SuiteFlow,Multi-Currency,Reporting Tools,SuiteTalk (SOAP / REST APIs),  Warehouse Management System (WMS), Supply Chain Management",Intermediate to Advanced
+,Saurabh Chaugule,NetSuite Developer," Procurement, Order Management, Dashboards, KPI Monitoring, Saved Searches, SuiteScript, SuiteFlow, SuiteTalk (SOAP / REST APIs), SuiteBuilder, SuiteBundler, SuiteCloud Development Framework (SDF), RESTlet, Integrations",Intermediate to Advanced
+,Swapnil,NetSuite Techno-Functional Consultant," Procurement, Dashboards, KPI Monitoring, Saved Searches, SuiteScript, SuiteFlow, SuiteTalk (SOAP / REST APIs), SuiteBuilder, SuiteBundler, SuiteCloud Development Framework (SDF), RESTlet, Integrations",Advanced
+,Shivam ,NetSuite Functional Developer,"Procurement,Dashboards,Saved Searches",Beginner 
+,Atharva,NetSuite Functional Developer,"Procurement , Dashboards, Saved Searche , Suite Flow ",Beginner 
+,Mayur,NetSuite Techno-Functional Consultant,"Procurement, Order Management, Dashboards, KPI Monitoring, Saved Searches, SuiteScript, SuiteFlow, SuiteTalk (SOAP / REST APIs), SuiteBuilder, SuiteBundler, SuiteCloud Development Framework (SDF), RESTlets",Advanced
+,,,,
+,,,,

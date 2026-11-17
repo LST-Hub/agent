@@ -27,6 +27,29 @@ class EmailService:
         self.user = settings.smtp.user
         self.password = settings.smtp.password
         self.from_email = settings.smtp.from_email
+        self.test_recipient = (settings.email_test_recipient or "").strip()
+
+    def _apply_test_redirect(self, to_email, subject, body, cc_email, is_html):
+        """
+        Test mode (EMAIL_TEST_RECIPIENT set): every email goes only to the test address,
+        with the intended recipients shown in a banner. Nobody else receives anything.
+        """
+        if not self.test_recipient:
+            return to_email, subject, body, cc_email
+        as_list = lambda v: [] if not v else (list(v) if isinstance(v, list) else [v])  # noqa: E731
+        intended_to, intended_cc = ", ".join(as_list(to_email)), ", ".join(as_list(cc_email))
+        if is_html:
+            import html as html_lib
+            banner = (f"<div style='background:#fff3cd;border:1px solid #e0c36c;padding:8px;margin-bottom:12px;'>"
+                      f"<strong>TEST MODE</strong> - this email was redirected to you. Intended to: "
+                      f"{html_lib.escape(intended_to) or '-'}"
+                      + (f"; cc: {html_lib.escape(intended_cc)}" if intended_cc else "") + "</div>")
+            body = body.replace("<body>", "<body>" + banner, 1) if "<body>" in body else banner + body
+        else:
+            body = (f"TEST MODE - redirected. Intended to: {intended_to or '-'}"
+                    + (f"; cc: {intended_cc}" if intended_cc else "") + "\n\n" + body)
+        logger.info(f"Test mode: '{subject}' redirected from {intended_to} to {self.test_recipient}")
+        return self.test_recipient, f"[TEST] {subject}", body, None
 
     def send_alert(self, to_email: Union[str, List[str]], subject: str, body: str, cc_email: Union[str, List[str]] = None, is_html: bool = False, attachments: List[dict] = None) -> bool:
         """
@@ -43,9 +66,10 @@ class EmailService:
                 - 'data': bytes - file content
         """
         try:
+            to_email, subject, body, cc_email = self._apply_test_redirect(to_email, subject, body, cc_email, is_html)
             msg = MIMEMultipart()
             msg['From'] = self.from_email
-            
+
             # Handle single email or list of emails for To
             if isinstance(to_email, list):
                 msg['To'] = ', '.join(to_email)

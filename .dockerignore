@@ -26,3 +26,8 @@ __pycache__/
 
 # Render config (not used on the VPS)
 render.yaml
+
+# Local-only files: real Teams chat samples and generated reports
+data/teams_samples.json
+*.html
+*.pdf

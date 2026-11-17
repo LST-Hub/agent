@@ -1,0 +1,16 @@
+# Local testing only. Adds a mail catcher so no email leaves this machine.
+#
+# Start:  docker compose -f docker-compose.yml -f docker-compose.local.yml up -d agent-db mailpit
+# Inbox:  http://localhost:8025
+# Run:    .venv\Scripts\python.exe scripts\local_run.py <command> [--today YYYY-MM-DD]
+# Reset:  docker compose -f docker-compose.yml -f docker-compose.local.yml down -v   (wipes local follow-up history)
+
+services:
+  mailpit:
+    image: axllent/mailpit:v1.21
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:1025:1025"   # SMTP
+      - "127.0.0.1:8025:8025"   # Web inbox

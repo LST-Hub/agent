@@ -110,7 +110,8 @@ class TimesheetService:
 
     def get_overtime_users(self, target_date: date, threshold_hours: int = 8) -> List[Dict]:
         """
-        Identify users with total duration > 8 hours.
+        Identify users with total duration > 8 hours (or specific threshold).
+        threshold_hours is in hours; durations are in seconds. Rejected timesheets are not counted.
         """
         if is_weekend(target_date) or is_holiday(target_date):
             return []
@@ -119,15 +120,17 @@ class TimesheetService:
         active_users = self._filter_ignored_users(active_users)
         overtime_records = []
 
+        threshold_seconds = threshold_hours * 3600  # Convert hours to seconds
+
         for user in active_users:
             timesheets = self.timesheet_repo.get_by_user_and_date(user.id, target_date)
-            total_duration = self.get_total_duration(timesheets)
-            
-            if total_duration > threshold_hours:
+            total_duration = self.get_total_duration([t for t in timesheets if not t.rejected])
+
+            if total_duration > threshold_seconds:
                 overtime_records.append({
                     "user": user,
                     "total_worked": total_duration,
-                    "overtime_hours": total_duration - threshold_hours
+                    "overtime_hours": total_duration - threshold_seconds  # Seconds, like get_idle_users
                 })
         
         return overtime_records

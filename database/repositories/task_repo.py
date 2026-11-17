@@ -45,3 +45,26 @@ class TaskRepository(BaseRepository[Task]):
         query = text("SELECT * FROM Task")
         result = self.session.execute(query).fetchall()
         return [self._map_row(row) for row in result]
+
+    def get_active_tasks_with_effort(self) -> List[dict]:
+        """
+        Fetch active tasks of active projects with logged effort
+        (seconds, excluding rejected timesheets).
+        """
+        query = text("""
+            SELECT
+                k.id, k.name, k.projectId, k.estimatedTime,
+                k.estimatedEndDate, k.actualEndDate,
+                COALESCE(ts.workedSeconds, 0) AS workedSeconds
+            FROM Task k
+            INNER JOIN Project p ON p.id = k.projectId AND p.active = 1 AND p.workspaceId = 3
+            LEFT JOIN (
+                SELECT taskId, SUM(duration) AS workedSeconds
+                FROM Timesheet
+                WHERE rejected = 0
+                GROUP BY taskId
+            ) ts ON ts.taskId = k.id
+            WHERE k.active = 1
+        """)
+        result = self.session.execute(query).fetchall()
+        return [dict(row._mapping) for row in result]

@@ -20,3 +20,6 @@ class TimesheetStatus(Enum):
 UTILIZATION_WARNING_THRESHOLD = 0.85  # 85% utilization
 IDLE_THRESHOLD_HOURS = 40             # Warn if idle for more than 40 hours in a period
 OVERRUN_RISK_THRESHOLD = 0.90         # Warning when budget/hours usage crosses 90%
+
+# Project names containing these keywords are internal leave buckets, not delivery projects
+LEAVE_PROJECT_KEYWORDS = {"leave", "full day leave", "half day leave", "sick leave", "annual leave", "public holiday"}

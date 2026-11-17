@@ -69,11 +69,11 @@ class OperationsMonitor:
         
     def check_project_health(self):
         """
-        Checks for project budget overruns.
+        Runs rule-based project health checks and emails the report.
         """
         logger.info("Running project health check...")
-        # Placeholder for project health logic
-        pass
+        from agents.project_health_agent import ProjectHealthAgent
+        ProjectHealthAgent().run()
 
 # Test execution when running this file directly
 if __name__ == "__main__":

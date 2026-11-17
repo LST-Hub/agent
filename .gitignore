@@ -206,3 +206,18 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project health dry-run reports
+project_health_*.html
+daily_ops_*.html
+
+AI_OPERATIONS_AGENT_BLUEPRINT.md
+# Follow-up dry-run previews
+followups_*.html
+
+# Forecast dry-run reports
+forecast_*.html
+
+# Teams allocation extraction reports and real chat samples
+teams_allocations_*.html
+data/teams_samples.json

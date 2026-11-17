@@ -94,7 +94,13 @@ def is_floater_holiday(d: date, user_id: int) -> bool:
     return d in floaters and user_id in floaters[d]
 
 def get_current_date() -> date:
-    """Returns current system date."""
+    """
+    Returns current system date.
+    For local testing, AGENT_TODAY=YYYY-MM-DD pretends today is that date.
+    """
+    override = (os.getenv("AGENT_TODAY") or "").strip()
+    if override:
+        return datetime.strptime(override, "%Y-%m-%d").date()
     return datetime.now().date()
 
 def is_friday(d: date = None) -> bool:
