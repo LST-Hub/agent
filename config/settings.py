@@ -101,6 +101,12 @@ class AppSettings:
     teams_lookback_days: int = field(default_factory=lambda: _env_int("TEAMS_LOOKBACK_DAYS", 7))
     # Office time zone offset from UTC in minutes (India: 330)
     teams_utc_offset_minutes: int = field(default_factory=lambda: _env_int("TEAMS_UTC_OFFSET_MINUTES", 330))
+    # Fernet key that encrypts the stored Teams login used to send reminders (teams-signin)
+    teams_token_key: str = field(default_factory=lambda: os.getenv("TEAMS_TOKEN_KEY", ""))
+    # Test mode for Teams reminders: when set, every reminder goes only to this person (email / UPN)
+    teams_dm_test_recipient: str = field(default_factory=lambda: (os.getenv("TEAMS_DM_TEST_RECIPIENT") or "").strip())
+    # User IDs who do not need to post a daily plan (e.g. PMs), on top of IGNORE_ID
+    teams_plan_ignore_ids: str = field(default_factory=lambda: os.getenv("TEAMS_PLAN_IGNORE_IDS", ""))
 
     @staticmethod
     def _parse_id_list(value: str) -> List[int]:
@@ -119,6 +125,10 @@ class AppSettings:
     def get_ignore_id_list(self) -> List[int]:
         """Parse comma-separated ignore IDs into a list of integers."""
         return self._parse_id_list(self.ignore_ids)
+
+    def get_teams_plan_ignore_ids(self) -> List[int]:
+        """User IDs who are not expected to post a daily plan in Teams."""
+        return self._parse_id_list(self.teams_plan_ignore_ids)
 
     def get_followup_ignore_pm_ids(self) -> List[int]:
         """PM user IDs excluded from follow-ups."""

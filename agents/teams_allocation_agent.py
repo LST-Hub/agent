@@ -40,6 +40,8 @@ class TeamsAllocationAgent:
         self.save = (sample_path is None) if save is None else save
         self.inactive_projects = set()
         self.save_note = ""
+        self.messages: List[ChatMessage] = []   # filled by run(), used by the plan check
+        self.people: Dict[int, str] = {}
 
     def _load_messages(self) -> List[ChatMessage]:
         if self.sample_path:
@@ -71,6 +73,7 @@ class TeamsAllocationAgent:
         people, projects, active_projects = self._load_records()
         self.inactive_projects = set(projects) - active_projects
         person_aliases, project_aliases = load_aliases()
+        self.messages, self.people = messages, people
 
         extractor = OpenAIAllocationExtractor(settings.ai.api_key, settings.ai.extraction_model)
         # The AI sees active projects only; inactive ones are still matched from the written words

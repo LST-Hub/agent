@@ -8,6 +8,8 @@
 #               docker compose run --rm agent followups-list
 #               docker compose run --rm agent forecast
 #               docker compose run --rm agent teams-allocations
+#               docker compose run --rm agent teams-plan-check     (11:00 working days; includes teams-allocations)
+#               docker compose run --rm agent teams-signin [--status]   (once; the code is entered at microsoft.com/devicelogin)
 #
 # The scheduling itself is done by the host's crontab calling these commands
 # (see the crontab block in the deployment notes). Containers are ephemeral:

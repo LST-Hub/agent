@@ -2,7 +2,8 @@
 Agent-owned operational store (PostgreSQL in production).
 
 Holds state the agent needs between runs: follow-ups sent to PMs, a log of
-every notification, and the day plans read from the Teams allocation chat.
+every notification, the day plans read from the Teams allocation chat, and the
+encrypted login of the account Teams reminders are sent from.
 The PM tool's MySQL database stays read-only.
 
 Tables are created on first use (create_all is idempotent). Move to Alembic
@@ -85,6 +86,19 @@ class TeamsPlan(Base):
     evidence = Column(Text)
     match_note = Column(Text)
     saved_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class TeamsSenderLogin(Base):
+    """The account Teams reminders are sent from (one row). Signing in again replaces it."""
+    __tablename__ = "teams_sender_login"
+
+    id = Column(Integer, primary_key=True)
+    graph_user_id = Column(String(64), nullable=False)
+    display_name = Column(String(255))
+    upn = Column(String(255))
+    refresh_token = Column(Text, nullable=False)   # Fernet-encrypted with TEAMS_TOKEN_KEY
+    signed_in_at = Column(DateTime, nullable=False, default=_utcnow)
+    updated_at = Column(DateTime, nullable=False, default=_utcnow)
 
 
 _session_factory = None

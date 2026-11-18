@@ -13,6 +13,9 @@ Usage:
     python main.py forecast-skills-template
     python main.py forecast-skills-import <file.csv> [--practice NAME]
     python main.py teams-allocations [--sample FILE] [--no-save]
+    python main.py teams-plan-check [--dry-run] [--dm-to EMAIL]
+    python main.py teams-signin [--status]
+    python main.py teams-signout
 
 """
 import sys
@@ -28,6 +31,7 @@ from agents.daily_operations_agent import DailyOperationsAgent
 from agents.followup_agent import FollowUpAgent, list_followups, close_followup
 from agents.forecast_agent import ForecastAgent, refresh_skills_template, import_skills_sheet
 from agents.teams_allocation_agent import TeamsAllocationAgent
+from agents.teams_plan_check_agent import TeamsPlanCheckAgent
 from services.email_service import EmailService
 from config.settings import settings
 from utils.date_utils import get_previous_week_start_end
@@ -173,6 +177,23 @@ def main():
             logger.info("Running Teams Allocation Agent...")
             sample = sys.argv[sys.argv.index("--sample") + 1] if "--sample" in sys.argv else None
             TeamsAllocationAgent(sample_path=sample, save=False if "--no-save" in sys.argv else None).run()
+        elif command == "teams-plan-check":
+            logger.info("Running Teams Plan Check Agent...")
+            dm_to = sys.argv[sys.argv.index("--dm-to") + 1] if "--dm-to" in sys.argv else None
+            TeamsPlanCheckAgent(dry_run="--dry-run" in sys.argv, dm_to=dm_to).run()
+        elif command in ("teams-signin", "teams-signout"):
+            from database.agent_store import get_agent_session
+            from services.teams_sender import login_status, sign_in, sign_out
+            store = get_agent_session()
+            try:
+                if command == "teams-signout":
+                    print("Signed out." if sign_out(store) else "Nobody was signed in.")
+                elif "--status" in sys.argv:
+                    print("Signed in as " + (login_status(store) or "nobody") + ".")
+                else:
+                    print(f"Teams reminders will be sent as {sign_in(store)}.")
+            finally:
+                store.close()
         elif command == "monday-summary":
             logger.info("Running Monday Summary Orchestrator...")
             run_monday_summary()
@@ -180,7 +201,7 @@ def main():
             print_tree(".")
         else:
             print(f"Unknown command: {command}")
-            print("Available commands: daily, weekly, weekly-report, weekly-billable-report, project-health, daily-ops, followups, followups-list, followups-close, forecast, forecast-skills-template, teams-allocations, monday-summary, tree")
+            print("Available commands: daily, weekly, weekly-report, weekly-billable-report, project-health, daily-ops, followups, followups-list, followups-close, forecast, forecast-skills-template, teams-allocations, teams-plan-check, teams-signin, teams-signout, monday-summary, tree")
             sys.exit(1)
     except Exception as e:
         logger.error(f"Error executing {command} agent: {e}", exc_info=True)

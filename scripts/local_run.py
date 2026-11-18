@@ -27,7 +27,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHAREPOINT_COMMANDS = {"weekly-report", "weekly-billable-report", "monday-summary"}
-NO_EMAIL_COMMANDS = {"teams-allocations", "followups-list", "forecast-skills-template", "forecast-skills-import", "tree"}
+NO_EMAIL_COMMANDS = {"teams-allocations", "teams-signin", "teams-signout", "followups-list", "forecast-skills-template", "forecast-skills-import", "tree"}
 MAILPIT = ("127.0.0.1", 1025)
 AGENT_DB = ("127.0.0.1", 5434)
 
@@ -72,7 +72,7 @@ def main():
         os.environ["EMAIL_TEST_RECIPIENT"] = email_to
         os.environ["FOLLOWUP_TEST_RECIPIENT"] = email_to
     else:
-        if command not in NO_EMAIL_COMMANDS and not _reachable(MAILPIT):
+        if command not in NO_EMAIL_COMMANDS and "--dry-run" not in args and not _reachable(MAILPIT):
             sys.exit("Mailpit is not running on 127.0.0.1:1025. Start it with:\n"
                      "  docker compose -f docker-compose.yml -f docker-compose.local.yml up -d agent-db mailpit\n"
                      "or send to your own inbox with --email-to you@example.com")
@@ -82,7 +82,10 @@ def main():
             "EMAIL_SERVER_SECURE": "",      # plain SMTP, which Mailpit accepts
         })
     # Agent state never goes to the server's database from a local run
-    needs_agent_db = command.startswith("followups") or (command == "teams-allocations" and "--sample" not in args
+    if command == "teams-plan-check" and "--dry-run" not in args and "--dm-to" not in args and not (env_file.get("TEAMS_DM_TEST_RECIPIENT") or "").strip():
+        sys.exit("Refusing teams-plan-check locally without --dm-to EMAIL or --dry-run: it would send real Teams messages.")
+    needs_agent_db = command.startswith("followups") or command in ("teams-signin", "teams-signout") or (
+        command == "teams-plan-check" and "--dry-run" not in args) or (command == "teams-allocations" and "--sample" not in args
                                                          and "--no-save" not in args)
     if _reachable(AGENT_DB):
         password = env_file.get("AGENT_DB_PASSWORD") or ""
