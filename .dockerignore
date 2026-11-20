@@ -31,3 +31,5 @@ render.yaml
 data/teams_samples.json
 *.html
 *.pdf
+.claude/
+CLAUDE.md

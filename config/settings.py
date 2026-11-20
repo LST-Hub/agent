@@ -51,8 +51,9 @@ class SMTPConfig:
     """Email server configuration."""
     service: str = field(default_factory=lambda: os.getenv("EMAIL_SERVICE"))
     host: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_HOST"))
-    port: int = field(default_factory=lambda: int(os.getenv("EMAIL_SERVER_PORT")))
-    secure: bool = field(default_factory=lambda: os.getenv("EMAIL_SERVER_SECURE"))
+    port: int = field(default_factory=lambda: _env_int("EMAIL_SERVER_PORT", 465))
+    # true/1/yes = STARTTLS on ports other than 465 (465 always uses SSL); "false" is really false now
+    secure: bool = field(default_factory=lambda: (os.getenv("EMAIL_SERVER_SECURE") or "").strip().lower() in ("1", "true", "yes"))
     user: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_USER"))
     password: str = field(default_factory=lambda: os.getenv("EMAIL_SERVER_PASSWORD"))
     from_email: str = field(default_factory=lambda: os.getenv("EMAIL_FROM", os.getenv("EMAIL_SERVER_USER")))
@@ -70,6 +71,15 @@ class AppSettings:
     db: DatabaseConfig = field(default_factory=DatabaseConfig)
     smtp: SMTPConfig = field(default_factory=SMTPConfig)
     ai: AIConfig = field(default_factory=AIConfig)
+    # How email is sent: smtp (EMAIL_SERVER_* above) or graph (Microsoft 365, Azure app above, Mail.Send)
+    email_transport: str = field(default_factory=lambda: (os.getenv("EMAIL_TRANSPORT") or "smtp").strip().lower())
+    # Mailbox the agent sends from with EMAIL_TRANSPORT=graph, e.g. ops-agent@lstconsultancy.com
+    graph_sender_mailbox: str = field(default_factory=lambda: (os.getenv("GRAPH_SENDER_MAILBOX") or "").strip())
+    # Gentle sending (shared hosting blocks bursts): pause between emails, cap per run, retries
+    email_send_delay_seconds: float = field(default_factory=lambda: float((os.getenv("EMAIL_SEND_DELAY_SECONDS") or "10").strip()))
+    email_max_per_run: int = field(default_factory=lambda: _env_int("EMAIL_MAX_PER_RUN", 60))
+    email_retries: int = field(default_factory=lambda: _env_int("EMAIL_RETRIES", 2))
+    email_retry_wait_seconds: int = field(default_factory=lambda: _env_int("EMAIL_RETRY_WAIT_SECONDS", 60))
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     ignore_ids: str = field(default_factory=lambda: os.getenv("IGNORE_ID", ""))
     pm_email: str = field(default_factory=lambda: os.getenv("PM_EMAIL", ""))

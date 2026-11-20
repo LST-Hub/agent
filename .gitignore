@@ -221,3 +221,7 @@ forecast_*.html
 # Teams allocation extraction reports and real chat samples
 teams_allocations_*.html
 data/teams_samples.json
+
+# Generated reports (PDFs for PMs, plan check previews)
+*.pdf
+teams_plan_check_*.html

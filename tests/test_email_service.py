@@ -10,13 +10,15 @@ from services.email_service import EmailService
 
 def send(test_recipient, **kwargs):
     """Send through a mocked SMTP server; returns (envelope recipients, parsed message)."""
+    EmailService.reset_run()
     service = EmailService()
     service.test_recipient = test_recipient
-    service.secure, service.port = "", 25
+    service.secure, service.port, service.transport = False, 25, "smtp"
     with patch("services.email_service.smtplib.SMTP") as smtp:
         ok = service.send_alert(**kwargs)
+    EmailService.reset_run()
     assert ok
-    _from, recipients, raw = smtp.return_value.__enter__.return_value.sendmail.call_args[0]
+    _from, recipients, raw = smtp.return_value.sendmail.call_args[0]
     return recipients, message_from_string(raw)
 
 

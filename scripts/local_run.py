@@ -80,6 +80,8 @@ def main():
             "EMAIL_SERVER_HOST": MAILPIT[0],
             "EMAIL_SERVER_PORT": str(MAILPIT[1]),
             "EMAIL_SERVER_SECURE": "",      # plain SMTP, which Mailpit accepts
+            "EMAIL_SEND_DELAY_SECONDS": "0",  # Mailpit has no rate limit
+            "EMAIL_TRANSPORT": "smtp",        # never Microsoft 365 when mail should land in Mailpit
         })
     # Agent state never goes to the server's database from a local run
     if command == "teams-plan-check" and "--dry-run" not in args and "--dm-to" not in args and not (env_file.get("TEAMS_DM_TEST_RECIPIENT") or "").strip():
