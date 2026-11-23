@@ -26,6 +26,16 @@ Teams login) lives in its own PostgreSQL `agent-db`.
   For agent-db / Mailpit: `docker compose -f docker-compose.yml -f docker-compose.local.yml up -d agent-db mailpit`.
 - Tests: `.venv\Scripts\python.exe -m unittest discover tests`. They must pass before any commit.
 
+## Running on the VPS
+- If the working folder is `/opt/agent` on `srv707772`, you are on the VPS. Run commands as
+  `docker compose run --rm agent <command> [args]`, not `local_run.py`. No tunnel is needed.
+- In test mode, all email goes to `EMAIL_TEST_RECIPIENT` from `.env`. For a one-off test, pass
+  `-e EMAIL_TEST_RECIPIENT=<user>` to `docker compose run`.
+- **The server is shared with many production apps.** Only touch the `agent` compose project (`agent-agent-run-*`,
+  `agent-agent-db`). Never stop, restart, exec into or remove other containers, and never change other crontab lines.
+  Ask before any `sudo` command.
+- The server clock is UTC. The cron schedule is in the ops-deploy skill.
+
 ## Rules (always)
 - **The TaskSprint DB is read-only.** Never write to it. For questions use `scripts/pm_query.py`; it only allows SELECT.
 - **Test mode first.** Never send email or Teams messages to anyone except the user without asking first.

@@ -5,8 +5,13 @@ description: Deploy and operate the operations agent on the VPS with docker comp
 
 # Deploy and operate on the VPS
 
-The VPS is `root@145.223.21.61`. Don't run commands there yourself unless the user asks and the SSH access works with
-BatchMode. Normally give the user the exact commands.
+The VPS is `145.223.21.61`. The user logs in as `sachin.ubale` (`ssh lst-vps`, key `~/.ssh/lst_vps`) and has sudo.
+The agent lives in **`/opt/agent`** (owned by sachin.ubale). Don't run commands there yourself unless the user asks and
+the SSH access works with BatchMode. Normally give the user the exact commands.
+
+**The server is shared with ~50 production containers** (TaskSprint, HR, archival, NSE, ...). Only touch the `agent`
+compose project: the `agent-agent-run-*` containers and `agent-agent-db`. Never stop, restart, exec into or remove
+anything else, and never edit other lines in root's crontab.
 
 ## Commit (from this PC)
 1. `git status`. Stage only source, tests, skills and data files. Never stage `.env`, generated `*.html` / `*.pdf` or
@@ -19,12 +24,17 @@ BatchMode. Normally give the user the exact commands.
 
 ## Deploy on the VPS
 ```
-cd <agent folder>
+cd /opt/agent
 git pull
 docker compose build
-docker compose up -d agent-db
-docker compose run --rm agent project-health --dry-run   # smoke test
+docker compose up -d --wait agent-db
+docker compose run --rm agent project-health   # smoke test; goes only to EMAIL_TEST_RECIPIENT while that is set
 ```
+`.env` changes need no rebuild: each `docker compose run` reads `.env` again.
+
+## Stuck runs
+`docker ps --filter name=agent-agent-run` should normally be empty. A run that has been "Up" for hours is hung.
+Check it with `docker logs --tail 50 <name>`, then remove it with `docker rm -f <name>`.
 
 ## .env checklist on the VPS (the user edits it)
 - `DATABASE_URL`: the PM DB as seen from the server.
@@ -40,14 +50,20 @@ docker compose run --rm agent project-health --dry-run   # smoke test
 ## Teams sender on the VPS
 `docker compose run --rm agent teams-signin`. Forward the code to the sender (see the ops-teams skill).
 
-## Crontab (working days, server time = IST; adjust if the server is UTC)
+## Crontab (root's crontab, `sudo crontab -e`; **the server clock is UTC**, IST = UTC + 5:30)
 ```
-0 11 * * 1-5  cd /path/agent && docker compose run --rm agent teams-plan-check >> logs/plan-check.log 2>&1
-30 11 * * 1-5 cd /path/agent && docker compose run --rm agent daily-ops >> logs/daily-ops.log 2>&1
-35 11 * * 1-5 cd /path/agent && docker compose run --rm agent project-health >> logs/project-health.log 2>&1
-0 12 * * 1-5  cd /path/agent && docker compose run --rm agent followups >> logs/followups.log 2>&1
-5 12 * * 1-5  cd /path/agent && docker compose run --rm agent forecast >> logs/forecast.log 2>&1
-0 2 * * *     cd /path/agent && docker compose exec -T agent-db pg_dump -U ops_agent ops_agent | gzip > backups/agent-db-$(date +\%F).sql.gz
+# IST 08:00 timesheet reminders, 18:00 Wed/Fri weekly, 16:00 Mon summary
+30 2 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent daily            >> /var/log/agent.log 2>&1
+30 12 * * 3,5  cd /opt/agent && /usr/bin/docker compose run --rm agent weekly           >> /var/log/agent.log 2>&1
+30 10 * * 1    cd /opt/agent && /usr/bin/docker compose run --rm agent monday-summary   >> /var/log/agent.log 2>&1
+# IST 11:00 plan check, 11:30 daily ops, 11:35 project health, 12:00 follow-ups, 12:05 forecast
+30 5 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent teams-plan-check >> /var/log/agent.log 2>&1
+0 6 * * 1-5    cd /opt/agent && /usr/bin/docker compose run --rm agent daily-ops        >> /var/log/agent.log 2>&1
+5 6 * * 1-5    cd /opt/agent && /usr/bin/docker compose run --rm agent project-health   >> /var/log/agent.log 2>&1
+30 6 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent followups        >> /var/log/agent.log 2>&1
+35 6 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent forecast         >> /var/log/agent.log 2>&1
+# IST 02:00 agent-db backup
+30 20 * * *    cd /opt/agent && /usr/bin/docker compose exec -T agent-db pg_dump -U ops_agent ops_agent | gzip > /opt/agent/backups/agent-db-$(date +\%F).sql.gz
 ```
 - `teams-plan-check` also reads and saves the Teams plans, so it runs before daily-ops and forecast.
 - The commands skip weekends and company holidays themselves where that matters.
