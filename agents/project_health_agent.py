@@ -6,6 +6,7 @@ one consolidated report to the configured PM/management recipients.
 import html
 import logging
 import os
+from utils.reports import report_path
 from typing import List
 from database.connection import get_db_session
 from services.email_service import EmailService
@@ -44,7 +45,7 @@ class ProjectHealthAgent:
         body = self._build_html_email_body(results, today)
 
         if self.dry_run:
-            out_path = os.path.abspath(f"project_health_{today.isoformat()}.html")
+            out_path = report_path(f"project_health_{today.isoformat()}.html")
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(body)
             logger.info(f"Dry run: report written to {out_path}")

@@ -33,3 +33,5 @@ data/teams_samples.json
 *.pdf
 .claude/
 CLAUDE.md
+
+out/

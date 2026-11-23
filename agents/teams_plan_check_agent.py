@@ -13,6 +13,7 @@ import html
 import json
 import logging
 import os
+from utils.reports import report_path
 from typing import Dict, List
 from agents.teams_allocation_agent import TeamsAllocationAgent
 from database.connection import get_db_session
@@ -95,7 +96,7 @@ class TeamsPlanCheckAgent:
         body = self._build_summary(result)
         subject = f"Teams plan check - {today:%a %d-%m-%Y}: {len(result.missing)} not posted"
         if self.dry_run:
-            out_path = os.path.abspath(f"teams_plan_check_{today.isoformat()}.html")
+            out_path = report_path(f"teams_plan_check_{today.isoformat()}.html")
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(body)
             logger.info(f"Dry run: summary written to {out_path}")

@@ -46,7 +46,8 @@ Teams login) lives in its own PostgreSQL `agent-db`.
 - **The TaskSprint DB is read-only.** Never write to it. For questions use `scripts/pm_query.py`; it only allows SELECT.
 - **Test mode first.** Never send email or Teams messages to anyone except the user without asking first.
   Use `--email-to <user>` for email and `--dm-to <someone else>` for Teams. Teams cannot message the signed-in account itself.
-- **Never print, commit or copy secrets.** Don't read `.env` whole. Use `scripts/env_list.py` for the allowed non-secret
+- **Never print, commit or copy secrets.** Don't read `.env` whole. Never run `docker compose config` or
+  `docker inspect` on the agent: they print every `.env` value. To check compose, use `docker compose config --services`. Use `scripts/env_list.py` for the allowed non-secret
   keys; the user edits secrets (passwords, keys, tokens) themselves.
 - **Never commit** `.env`, generated `*.html` / `*.pdf` reports, or `data/teams_samples.json`.
   `AI_OPERATIONS_AGENT_BLUEPRINT.md` is gitignored.

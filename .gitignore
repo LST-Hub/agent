@@ -225,3 +225,6 @@ data/teams_samples.json
 # Generated reports (PDFs for PMs, plan check previews)
 *.pdf
 teams_plan_check_*.html
+
+# Report previews written by docker compose runs (REPORT_DIR)
+out/

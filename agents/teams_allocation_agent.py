@@ -10,6 +10,7 @@ logged). Review items are never saved. Runs on a sample file are never saved.
 import html
 import logging
 import os
+from utils.reports import report_path
 from datetime import datetime, timedelta
 from typing import Dict, List
 from database.connection import get_db_session
@@ -92,7 +93,7 @@ class TeamsAllocationAgent:
 
         self.save_note = self._save(resolution, messages)
 
-        out_path = os.path.abspath(f"teams_allocations_{get_current_date().isoformat()}.html")
+        out_path = report_path(f"teams_allocations_{get_current_date().isoformat()}.html")
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(self._build_report(messages, len(raw_rows), resolution))
 

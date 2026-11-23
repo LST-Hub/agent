@@ -8,6 +8,7 @@ One email per PM per run. State lives in the agent store (AGENT_DATABASE_URL).
 import html
 import logging
 import os
+from utils.reports import report_path
 from typing import Dict, List
 from database.connection import get_db_session
 from database.agent_store import (
@@ -183,7 +184,7 @@ class FollowUpAgent:
                 fu.status, fu.escalated_on = STATUS_ESCALATED, today
 
     def _write_preview(self, today):
-        out_path = os.path.abspath(f"followups_{today.isoformat()}.html")
+        out_path = report_path(f"followups_{today.isoformat()}.html")
         content = "".join(self.previews) or "<p>No emails would be sent.</p>"
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(f"<html><body><h1>Follow-up dry run</h1>{content}</body></html>")

@@ -7,6 +7,7 @@ Plans come from PM-tool allocations and from day plans posted in the Teams chat.
 import html
 import logging
 import os
+from utils.reports import report_path
 from datetime import timedelta
 from typing import List
 from database.connection import get_db_session
@@ -60,7 +61,7 @@ class DailyOperationsAgent:
         body = self._build_html_email_body(result, period)
 
         if self.dry_run:
-            out_path = os.path.abspath(f"daily_ops_{today.isoformat()}.html")
+            out_path = report_path(f"daily_ops_{today.isoformat()}.html")
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(body)
             logger.info(f"Dry run: report written to {out_path}")

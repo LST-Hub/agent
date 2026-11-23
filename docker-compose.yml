@@ -32,7 +32,12 @@ services:
     depends_on:
       agent-db:
         condition: service_healthy
-    # No ports/volumes: this is a batch job whose output is email.
+    # Dry-run / preview HTML reports land in ./out on the host (e.g. /opt/agent/out),
+    # so they survive `run --rm`.
+    environment:
+      REPORT_DIR: /app/out
+    volumes:
+      - ./out:/app/out
     # `restart: no` is the default — we do NOT want it looping.
     restart: "no"
 
