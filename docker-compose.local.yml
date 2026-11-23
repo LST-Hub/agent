@@ -6,6 +6,10 @@
 # Reset:  docker compose -f docker-compose.yml -f docker-compose.local.yml down -v   (wipes local follow-up history)
 
 services:
+  agent-db:
+    ports:
+      - "127.0.0.1:5434:5432"   # local_run.py connects here
+
   mailpit:
     image: axllent/mailpit:v1.21
     environment:

@@ -44,9 +44,8 @@ services:
       POSTGRES_PASSWORD: ${AGENT_DB_PASSWORD:?Set AGENT_DB_PASSWORD in .env}
     volumes:
       - agent-db-data:/var/lib/postgresql/data
-    # Loopback only: reachable from the VPS itself (or an SSH tunnel), never from the internet
-    ports:
-      - "127.0.0.1:5434:5432"
+    # No host port: the agent reaches it as agent-db:5432 on the compose network.
+    # (5434 on the VPS is used by another app; the local port is in docker-compose.local.yml.)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ops_agent -d ops_agent"]
       interval: 5s
