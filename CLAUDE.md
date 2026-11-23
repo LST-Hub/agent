@@ -29,6 +29,12 @@ Teams login) lives in its own PostgreSQL `agent-db`.
 ## Running on the VPS
 - If the working folder is `/opt/agent` on `srv707772`, you are on the VPS. Run commands as
   `docker compose run --rm agent <command> [args]`, not `local_run.py`. No tunnel is needed.
+- Helper scripts on the VPS:
+  - TaskSprint questions (needs the image's Python packages):
+    `docker compose run --rm --entrypoint python agent scripts/pm_query.py ...`
+  - `.env` lists: `python3 scripts/env_list.py ...` (stdlib only, runs on the host).
+- **Code and `data/*.json` are copied into the image.** After `git pull` or any edit under `data/`, run
+  `docker compose build`, or the runs keep using the old files. `.env` changes need no rebuild.
 - In test mode, all email goes to `EMAIL_TEST_RECIPIENT` from `.env`. For a one-off test, pass
   `-e EMAIL_TEST_RECIPIENT=<user>` to `docker compose run`.
 - **The server is shared with many production apps.** Only touch the `agent` compose project (`agent-agent-run-*`,
