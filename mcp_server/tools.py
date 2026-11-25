@@ -315,3 +315,107 @@ def email_report(report: str, to_email: str) -> str:
         raise RuntimeError("The email could not be sent. Please try again later.")
     redirected = settings.email_test_recipient
     return f"Sent '{subject}' to {redirected or to_email}" + (" (test mode)" if redirected else "") + "."
+
+
+# ------------------------------------------------------------------ Teams plan reminder (sends messages)
+
+MAX_REMIND_PEOPLE = 10
+MANUAL_LOG_KIND = "teams_plan_reminder_manual"
+
+
+def resolve_person(query: str, users: List) -> object:
+    """One active TaskSprint user for a name, part of a name or an email; a readable error otherwise."""
+    q = (query or "").strip().lower()
+    if not q:
+        raise ValueError("Give the person's name.")
+    exact = [u for u in users if q in ((u.email or "").lower(), (u.name or "").strip().lower())]
+    if len(exact) == 1:
+        return exact[0]
+    partial = exact or [u for u in users if q in (u.name or "").lower()]
+    if len(partial) == 1:
+        return partial[0]
+    if not partial:
+        raise ValueError(f"No active TaskSprint person matches '{query}'.")
+    names = ", ".join(sorted(u.name for u in partial)[:10])
+    raise ValueError(f"'{query}' matches several people ({names}); use the full name.")
+
+
+def remind_to_post_plan(people: List[str], asker_email: str, even_if_posted: bool = False,
+                        store_factory=None, sender_factory=None, users=None) -> Dict:
+    """Teams message from the agent account asking each person to post today's plan: the same fixed text as
+    the 11:00 reminder, without the name of who asked (that is only in the server log)."""
+    from utils.date_utils import is_holiday, is_weekend
+    people = [p for p in (people or []) if p and p.strip()]
+    if not people:
+        raise ValueError("Name at least one person.")
+    if len(people) > MAX_REMIND_PEOPLE:
+        raise ValueError(f"At most {MAX_REMIND_PEOPLE} people per request.")
+    today = get_current_date()
+    if is_weekend(today) or is_holiday(today):
+        raise ValueError(f"{today:%a %d-%m-%Y} is not a working day; no plan is expected.")
+
+    if users is None:
+        from database.repositories.user_repo import UserRepository
+        session = _pm_session()
+        try:
+            users = UserRepository(session).get_active_users()
+        finally:
+            session.close()
+    ignored = set(settings.get_ignore_id_list())
+    targets = []
+    for query in people:                               # resolve everyone before sending anything
+        u = resolve_person(query, users)
+        if u.id in ignored:
+            raise ValueError(f"{u.name} is on the ignore list (IGNORE_ID); no reminder sent to anyone.")
+        if u.id not in {t.id for t in targets}:
+            targets.append(u)
+    from agents.teams_plan_check_agent import _office_emails
+    office = _office_emails()
+    from services.teams_plan_check import reminder_html
+    from services.teams_plans import load_plans_safe
+    posted = {r["userId"] for r in load_plans_safe(today, today)}
+
+    if store_factory is None:
+        from database.agent_store import get_agent_session as store_factory
+    if sender_factory is None:
+        from services.teams_sender import TeamsSender as sender_factory
+    from database.agent_store import NotificationLog
+    from services.teams_sender import TeamsSignInError
+
+    test_to = settings.teams_dm_test_recipient
+    results = []
+    store = store_factory()
+    try:
+        try:
+            sender = sender_factory(store)
+        except TeamsSignInError as exc:
+            raise ValueError(f"Teams messages cannot be sent right now: {exc}")
+        for u in targets:
+            first = (u.firstName or (u.name or "").split(" ")[0] or u.name).strip()
+            subject = f"{today.isoformat()} user {u.id}"
+            if u.id in posted and not even_if_posted:
+                results.append({"person": u.name, "status": "not sent: a plan for today is already saved "
+                                "(set even_if_posted to send anyway)"})
+                continue
+            if test_to:
+                outcome = sender.send(test_to, reminder_html(first, today, intended_for=u.name))
+                kind, to = MANUAL_LOG_KIND + "_test", test_to
+            else:
+                if store.query(NotificationLog).filter_by(kind=MANUAL_LOG_KIND, subject=subject, success=True).first():
+                    results.append({"person": u.name, "status": "not sent: already reminded through LST Ops today"})
+                    continue
+                to = office.get(u.id) or u.email or ""
+                if not to:
+                    results.append({"person": u.name, "status": "not sent: no email address"})
+                    continue
+                outcome = sender.send(to, reminder_html(first, today))
+                kind = MANUAL_LOG_KIND
+            store.add(NotificationLog(kind=kind, recipients=to, subject=subject, success=outcome.ok))
+            store.commit()
+            logger.info(f"Plan reminder for {u.name} asked by {asker_email}: {'sent' if outcome.ok else outcome.error}")
+            results.append({"person": u.name, "status": (f"sent to {test_to} (test mode)" if test_to else "sent")
+                            if outcome.ok else f"failed: {outcome.error}"})
+        return {"date": today.isoformat(), "sent_from": sender.sender_name, "test_mode": bool(test_to),
+                "results": results}
+    finally:
+        store.close()

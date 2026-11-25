@@ -40,3 +40,8 @@ def is_allowed(email: str, rules: list) -> bool:
         if rule == email:
             return True
     return False
+
+
+def sender_rules(raw: Optional[str] = None) -> list:
+    """Who may send Teams reminders through the connector (MCP_SENDERS, same format; empty = nobody)."""
+    return allowed_rules(os.getenv("MCP_SENDERS", "") if raw is None else raw)

@@ -120,7 +120,7 @@ class ToolWiringTests(unittest.TestCase):
     def test_tools_are_listed(self):
         self.assertEqual(sorted(self.call("__list__")),
                          ["daily_operations", "email_me_report", "logged_hours", "project_health",
-                          "resource_forecast", "teams_allocations", "whoami"])
+                          "remind_to_post_plan", "resource_forecast", "teams_allocations", "whoami"])
 
     def test_whoami_returns_the_signed_in_person(self):
         result = self.call("whoami")
@@ -143,6 +143,76 @@ class ToolWiringTests(unittest.TestCase):
             result = self.call("email_me_report", {"report": "forecast"}, user="boss@lst.com")
         self.assertFalse(result.is_error)
         send.assert_called_once_with("forecast", "boss@lst.com")
+
+    def test_reminder_needs_mcp_senders(self):
+        with mock.patch.object(tools, "remind_to_post_plan", return_value={}) as send,                 mock.patch.dict("os.environ", {"MCP_SENDERS": "boss@lst.com"}):
+            refused = self.call("remind_to_post_plan", {"people": ["sachin"]}, user="pm@lst.com")
+            allowed = self.call("remind_to_post_plan", {"people": ["sachin"]}, user="boss@lst.com")
+        self.assertTrue(refused.is_error)
+        self.assertIn("not send reminders", refused.content[0].text)
+        self.assertFalse(allowed.is_error)
+        send.assert_called_once_with(["sachin"], "boss@lst.com", even_if_posted=False)
+
+
+class PlanReminderTests(unittest.TestCase):
+    """remind_to_post_plan with fake users, Teams sender and agent store (from the timesheet reminder tests)."""
+
+    def setUp(self):
+        from types import SimpleNamespace as U
+        self.users = [U(id=1, name="Sachin Ubale", firstName="Sachin", email="sachin@lst.com"),
+                      U(id=2, name="Sachin Patil", firstName="Sachin", email="sp@lst.com"),
+                      U(id=3, name="Poonam Kale", firstName="Poonam", email="poonam@lst.com"),
+                      U(id=4, name="Varad M", firstName="Varad", email="varad@lst.com"),
+                      U(id=106, name="Arpita Bhalerao", firstName="Arpita", email="arpita@lst.com")]
+
+    def run_remind(self, people, test_to="", posted=(), store=None, ignore="106", **kw):
+        from tests.test_timesheet_reminders import FakeSender, FakeStore
+        sender, store = FakeSender(), store or FakeStore()
+        with mock.patch.object(tools, "get_current_date", return_value=date(2026, 11, 25)),                 mock.patch("utils.date_utils.is_holiday", return_value=False),                 mock.patch("agents.teams_plan_check_agent._office_emails", return_value={}),                 mock.patch("services.teams_plans.load_plans_safe", return_value=[{"userId": i} for i in posted]),                 mock.patch.object(tools.settings, "teams_dm_test_recipient", test_to),                 mock.patch.object(tools.settings, "ignore_ids", ignore):
+            out = tools.remind_to_post_plan(people, "varad@lst.com", users=self.users, store_factory=lambda: store,
+                                            sender_factory=lambda _: sender, **kw)
+        return out, sender, store
+
+    def test_resolve_person(self):
+        self.assertEqual(tools.resolve_person("poonam", self.users).id, 3)
+        self.assertEqual(tools.resolve_person("SACHIN UBALE", self.users).id, 1)
+        self.assertEqual(tools.resolve_person("sp@lst.com", self.users).id, 2)
+        with self.assertRaisesRegex(ValueError, "several people"):
+            tools.resolve_person("sachin", self.users)
+        with self.assertRaisesRegex(ValueError, "No active"):
+            tools.resolve_person("nobody", self.users)
+
+    def test_sends_the_fixed_text_without_who_asked(self):
+        out, sender, _ = self.run_remind(["poonam"])
+        self.assertEqual(sender.sent[0][0], "poonam@lst.com")
+        self.assertIn("Hi Poonam, your work plan for today (Wed 25-11-2026) is not posted", sender.sent[0][1])
+        self.assertNotIn("Varad", sender.sent[0][1])
+        self.assertEqual(out["results"], [{"person": "Poonam Kale", "status": "sent"}])
+
+    def test_test_mode_goes_to_the_tester(self):
+        out, sender, _ = self.run_remind(["poonam", "sachin ubale"], test_to="me@lst.com")
+        self.assertEqual([s[0] for s in sender.sent], ["me@lst.com", "me@lst.com"])
+        self.assertIn("[TEST, meant for Sachin Ubale]", sender.sent[1][1])
+        self.assertTrue(out["test_mode"])
+
+    def test_once_per_day_and_skips_posted(self):
+        out, sender, store = self.run_remind(["poonam", "sachin ubale"], posted=[1])
+        self.assertEqual(len(sender.sent), 1)
+        self.assertIn("already saved", out["results"][1]["status"])
+        again, sender2, _ = self.run_remind(["poonam"], store=store)
+        self.assertEqual(sender2.sent, [])
+        self.assertIn("already reminded", again["results"][0]["status"])
+        forced, sender3, _ = self.run_remind(["sachin ubale"], posted=[1], even_if_posted=True)
+        self.assertEqual(len(sender3.sent), 1)
+
+    def test_nothing_sent_when_a_name_is_wrong_or_ignored(self):
+        for people, error in ((["poonam", "nobody"], "No active"), (["poonam", "arpita"], "ignore list")):
+            with self.assertRaisesRegex(ValueError, error):
+                self.run_remind(people)
+
+    def test_limits(self):
+        with self.assertRaisesRegex(ValueError, "At most"):
+            tools.remind_to_post_plan(["a"] * 11, "x@lst.com", users=self.users)
 
 
 if __name__ == "__main__":

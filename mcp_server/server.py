@@ -12,6 +12,7 @@ Settings (.env):
     MCP_AZURE_SCOPE            scope exposed by that app (default ops.read)
     MCP_JWT_SIGNING_KEY        random secret; signs the connector's own tokens and encrypts stored logins
     MCP_ALLOWED_USERS          see mcp_server/access.py
+    MCP_SENDERS                who may send Teams plan reminders (same format; empty = nobody)
     MCP_ALLOWED_REDIRECTS      optional, default the claude.ai / claude.com callbacks
     FASTMCP_HOME               where logins are stored (docker: /data, a volume)
 Run: python -m mcp_server
@@ -21,7 +22,7 @@ import contextvars
 import functools
 import logging
 import os
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import anyio
 from fastmcp import FastMCP
@@ -31,14 +32,15 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 
 from mcp_server import tools
-from mcp_server.access import allowed_rules, is_allowed, user_email
+from mcp_server.access import allowed_rules, is_allowed, sender_rules, user_email
 
 logger = logging.getLogger("mcp_server")
 
 DEFAULT_REDIRECTS = "https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback"
 
 INSTRUCTIONS = """LST Consultancy operations data from TaskSprint (the PM tool) and the Teams allocation chat.
-All tools are read-only. Hours are decimal hours. Dates are YYYY-MM-DD; 'today' and 'yesterday' also work.
+All tools only read data, except email_me_report (emails the asker) and remind_to_post_plan (sends Teams
+messages; confirm the names first). Hours are decimal hours. Dates are YYYY-MM-DD; 'today' and 'yesterday' also work.
 Answer in short tables. Names can be partial (e.g. 'poonam'). TaskSprint is the system PMs update to fix issues."""
 
 
@@ -148,6 +150,19 @@ def build(auth=True) -> FastMCP:
     def email_me_report(report: Literal["project-health", "daily-ops", "forecast"]) -> str:
         """Email the full standard report (HTML) to the signed-in person only."""
         return tools.email_report(report, CURRENT_EMAIL.get())
+
+    @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False, "openWorldHint": True})
+    @guarded
+    def remind_to_post_plan(people: List[str], even_if_posted: bool = False) -> dict:
+        """Send a Teams message from the LST Ops Agent account asking each person to post today's work plan in
+        the allocation group (the same fixed text as the 11:00 reminder; it does not say who asked).
+        people: names, parts of names or emails (max 10). People with a plan already saved for today are skipped
+        unless even_if_posted is true. One reminder per person per day through LST Ops.
+        Confirm the names with the user before calling."""
+        email = CURRENT_EMAIL.get()
+        if not is_allowed(email, sender_rules()):
+            raise ToolError(f"{email} may read LST Ops but not send reminders. Ask the operations team.")
+        return tools.remind_to_post_plan(people, email, even_if_posted=even_if_posted)
 
     return mcp
 
