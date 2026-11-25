@@ -42,6 +42,15 @@ Teams login) lives in its own PostgreSQL `agent-db`.
   Ask before any `sudo` command.
 - The server clock is UTC. The cron schedule is in the ops-deploy skill.
 
+## LST Ops connector (claude.ai)
+- `mcp_server/` is a remote MCP server: PMs and management add it in claude.ai and ask in plain words.
+  Tools: `teams_allocations`, `project_health`, `daily_operations`, `resource_forecast`, `logged_hours`,
+  `email_me_report` (to the asker only), `whoami`. All read TaskSprint read-only.
+- Sign-in is Microsoft Entra (separate app registration, `MCP_AZURE_*`). Who may use it: `MCP_ALLOWED_USERS`
+  (emails, `@domain` or `*`), editable with `env_list.py`; then restart the `mcp` service.
+- On the VPS: `docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d --build mcp`
+  (also after `git pull`). Logs show who asked for what: `... logs --tail 100 mcp`.
+
 ## Rules (always)
 - **The TaskSprint DB is read-only.** Never write to it. For questions use `scripts/pm_query.py`; it only allows SELECT.
 - **Test mode first.** Never send email or Teams messages to anyone except the user without asking first.

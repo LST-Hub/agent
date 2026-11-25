@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose run --rm agent teams-allocations --no-save*)",
+      "Bash(docker compose run --rm agent project-health --dry-run*)",
+      "Bash(docker compose run --rm agent daily-ops --dry-run*)",
+      "Bash(docker compose run --rm agent forecast --dry-run*)",
+      "Bash(docker compose run --rm agent followups --dry-run*)",
+      "Bash(docker compose run --rm agent teams-plan-check --dry-run*)",
+      "Bash(docker compose run --rm agent followups-list*)",
+      "Bash(docker compose run --rm agent teams-signin --status*)",
+      "Bash(docker compose run --rm --entrypoint python agent scripts/pm_query.py *)",
+      "Bash(docker compose ps*)",
+      "Bash(docker compose logs*)",
+      "Bash(docker ps --filter name=agent*)",
+      "Bash(date*)",
+      "Bash(ls*)",
+      "Bash(git status*)",
+      "Bash(git log*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(/opt/agent/.env)",
+      "Bash(cat .env*)",
+      "Bash(cat /opt/agent/.env*)",
+      "Bash(docker compose config)",
+      "Bash(docker compose config --format*)",
+      "Bash(docker inspect*)",
+      "Bash(docker compose down*)",
+      "Bash(docker stop*)",
+      "Bash(docker restart*)",
+      "Bash(docker system prune*)",
+      "Bash(docker volume rm*)",
+      "Bash(rm -rf*)"
+    ]
+  }
+}

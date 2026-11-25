@@ -1,0 +1,52 @@
+# LST Ops connector (remote MCP server for claude.ai), VPS only.
+#
+# Start / update:  docker compose -f docker-compose.yml -f docker-compose.mcp.yml up -d --build mcp
+# Logs:            docker compose -f docker-compose.yml -f docker-compose.mcp.yml logs -f mcp
+# Stop:            docker compose -f docker-compose.yml -f docker-compose.mcp.yml stop mcp
+#
+# Needs in .env (see mcp_server/server.py): MCP_BASE_URL, MCP_AZURE_CLIENT_ID, MCP_AZURE_CLIENT_SECRET,
+# MCP_JWT_SIGNING_KEY, MCP_ALLOWED_USERS, plus for Traefik: MCP_HOST (e.g. ops-mcp.lstconsultancy.com),
+# TRAEFIK_NETWORK (the network Traefik watches) and TRAEFIK_CERTRESOLVER (its Let's Encrypt resolver).
+
+services:
+  mcp:
+    image: agent:latest
+    build: .
+    entrypoint: ["python", "-m", "mcp_server"]
+    command: []
+    env_file:
+      - .env
+    environment:
+      FASTMCP_HOME: /data          # sign-in registrations and tokens (encrypted), kept across restarts
+      REPORT_DIR: /app/out
+    volumes:
+      - mcp-data:/data
+      - ./out:/app/out
+    depends_on:
+      agent-db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - default
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:?Set TRAEFIK_NETWORK in .env}
+      - traefik.http.routers.lst-ops-mcp.rule=Host(`${MCP_HOST:?Set MCP_HOST in .env}`)
+      - traefik.http.routers.lst-ops-mcp.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.lst-ops-mcp.tls=true
+      - traefik.http.routers.lst-ops-mcp.tls.certresolver=${TRAEFIK_CERTRESOLVER:?Set TRAEFIK_CERTRESOLVER in .env}
+      - traefik.http.services.lst-ops-mcp.loadbalancer.server.port=8000
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:?Set TRAEFIK_NETWORK in .env}
+
+volumes:
+  mcp-data:
