@@ -86,7 +86,11 @@ def main():
     # Agent state never goes to the server's database from a local run
     if command == "teams-plan-check" and "--dry-run" not in args and "--dm-to" not in args and not (env_file.get("TEAMS_DM_TEST_RECIPIENT") or "").strip():
         sys.exit("Refusing teams-plan-check locally without --dm-to EMAIL or --dry-run: it would send real Teams messages.")
-    needs_agent_db = command.startswith("followups") or command in ("teams-signin", "teams-signout") or (
+    teams_daily = command == "daily" and "--dry-run" not in args and (
+        os.getenv("TIMESHEET_REMINDER_CHANNEL") or env_file.get("TIMESHEET_REMINDER_CHANNEL") or "email").strip().lower() != "email"
+    if teams_daily and "--dm-to" not in args and not (env_file.get("TEAMS_DM_TEST_RECIPIENT") or "").strip():
+        sys.exit("Refusing daily locally with Teams reminders without --dm-to EMAIL or --dry-run: it would send real Teams messages.")
+    needs_agent_db = teams_daily or command.startswith("followups") or command in ("teams-signin", "teams-signout") or (
         command == "teams-plan-check" and "--dry-run" not in args) or (command == "teams-allocations" and "--sample" not in args
                                                          and "--no-save" not in args)
     if _reachable(AGENT_DB):

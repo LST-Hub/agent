@@ -115,6 +115,9 @@ class AppSettings:
     teams_token_key: str = field(default_factory=lambda: os.getenv("TEAMS_TOKEN_KEY", ""))
     # Test mode for Teams reminders: when set, every reminder goes only to this person (email / UPN)
     teams_dm_test_recipient: str = field(default_factory=lambda: (os.getenv("TEAMS_DM_TEST_RECIPIENT") or "").strip())
+    # Missing-timesheet reminders (daily): email, teams (email only if Teams fails) or both
+    timesheet_reminder_channel: str = field(
+        default_factory=lambda: (os.getenv("TIMESHEET_REMINDER_CHANNEL") or "email").strip().lower())
     # User IDs who do not need to post a daily plan (e.g. PMs), on top of IGNORE_ID
     teams_plan_ignore_ids: str = field(default_factory=lambda: os.getenv("TEAMS_PLAN_IGNORE_IDS", ""))
 

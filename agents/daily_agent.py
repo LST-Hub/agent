@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from database.connection import get_db_session
 from services.timesheet_service import TimesheetService
 from services.email_service import EmailService
+from services.timesheet_reminders import Reminder, date_strings, deliver
 from utils.date_utils import get_current_date
 from utils.email_resolver import EmailResolver
 from config.settings import settings
@@ -18,7 +19,9 @@ import os
 logger = logging.getLogger(__name__)
 
 class DailyAgent:
-    def __init__(self):
+    def __init__(self, dry_run: bool = False, dm_to: str = None):
+        self.dry_run = dry_run
+        self.test_recipient = (dm_to or settings.teams_dm_test_recipient or "").strip()
         self.email_service = EmailService()
         self.email_resolver = EmailResolver()
         self.ignore_ids = settings.get_ignore_id_list()
@@ -56,7 +59,10 @@ class DailyAgent:
         
         logger.info("Starting Daily Agent execution...")
         current_date = get_current_date()
-        
+        if is_weekend(current_date) or is_holiday(current_date):
+            logger.info(f"{current_date}: weekend or company holiday, no timesheet reminders.")
+            return
+
         # Using a context manager for the session is safer
         session_gen = get_db_session()
         session = next(session_gen)
@@ -158,66 +164,32 @@ class DailyAgent:
                     idle_seconds = record['idle_hours']  # This is already in seconds from the service
                     user_timesheet_issues[user.id]['incomplete_dates'][target_date] = idle_seconds
         
-        # Send consolidated emails to users
+        # Build one reminder per person, then deliver on the configured channel (email / Teams)
+        reminders = []
         for user_id, data in user_timesheet_issues.items():
             user = data['user']
-            missing_dates = data['missing_dates']
-            incomplete_dates = data['incomplete_dates']
-            
-            # Get email from active_emp.json
-            user_email = self._get_user_email(user.id, user.email)
-            
-            # Get supervisor email
-            supervisor_email = None
-            if user.supervisorId and not self._should_ignore_user(user.supervisorId):
-                supervisor_db_email = self.email_resolver.get_office_email(user.supervisorId)
-                supervisor_email = self._get_user_email(user.supervisorId, supervisor_db_email)
-            
-            # Build date strings
-            date_strings = []
-            
-            # Add completely missing dates
-            for missing_date in sorted(missing_dates.keys()):
-                date_strings.append(f"{missing_date}")
-            
-            # Add incomplete dates with hours remaining
-            for incomplete_date in sorted(incomplete_dates.keys()):
-                idle_seconds = incomplete_dates[incomplete_date]
-                idle_hours = idle_seconds / 3600  # Now convert seconds to hours
-                
-                # Format hours nicely
-                if idle_hours >= 1:
-                    hours_str = f"{idle_hours:.1f} hours" if idle_hours != 1 else "1 hour"
-                else:
-                    minutes = int((idle_hours * 60))
-                    hours_str = f"{minutes} minutes"
-                
-                date_strings.append(f"{incomplete_date} ({hours_str} remaining)")
-            
-            if not date_strings:
+            if not data['missing_dates'] and not data['incomplete_dates']:
                 continue
-            
-            logger.info(f"User {user.email} has timesheet issues for {len(date_strings)} dates.")
-            print(f"User {user.id} ({user_email}) Timesheet issues {date_strings}")
-            
-            # Build email
-            if len(date_strings) == 1:
-                dates_str = date_strings[0]
-                subject = "Missing/Incomplete Timesheet Reminder"
-                body = f"Hi {user.firstName}, please submit/complete your timesheet for {dates_str}."
-            else:
-                dates_str = ", ".join(date_strings)
-                subject = "Missing/Incomplete Timesheets Reminder"
-                body = f"Hi {user.firstName}, please submit/complete your timesheets for the following dates {dates_str}."
-            
-            # Send email
-            self.email_service.send_alert(
-                to_email=user_email,
-                subject=subject,
-                body=body,
-                #cc_email=supervisor_email
-            )
-        
+            reminders.append(Reminder(
+                user_id=user.id, first_name=user.firstName or (user.name or "").split(" ")[0], name=user.name or "",
+                email=self._get_user_email(user.id, user.email),
+                missing=sorted(data['missing_dates']), incomplete=dict(data['incomplete_dates'])))
+            logger.info(f"User {user.id} has timesheet issues: "
+                        f"{date_strings(reminders[-1].missing, reminders[-1].incomplete)}")
+
+        if self.dry_run:
+            for r in reminders:
+                print(f"[dry run] {r.name} <{r.email}>: {', '.join(date_strings(r.missing, r.incomplete))}")
+            logger.info(f"Dry run: {len(reminders)} reminder(s), nothing sent.")
+            return reminders
+
+        note = deliver(reminders, current_date, settings.timesheet_reminder_channel, self.email_service,
+                       test_recipient=self.test_recipient)
+        for r in reminders:
+            logger.info(f"Timesheet reminder {r.name}: {r.status}")
+        logger.info(f"{len(reminders)} timesheet reminder(s). {note}")
+        return reminders
+
         # Send notifications to PMs
         # self._notify_pms_missing_timesheets(service, dates_to_check)
 

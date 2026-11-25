@@ -1,7 +1,7 @@
 """
 Main entry point for the Operations Agent.
 Usage:
-    python main.py daily
+    python main.py daily [--dry-run] [--dm-to EMAIL]   (TIMESHEET_REMINDER_CHANNEL email|teams|both)
     python main.py weekly
     python main.py weekly-report
     python main.py project-health [--dry-run]
@@ -128,8 +128,8 @@ def main():
     try:
         if command == "daily":
             logger.info("Running Daily Agent...")
-            agent = DailyAgent()
-            agent.run()
+            dm_to = sys.argv[sys.argv.index("--dm-to") + 1] if "--dm-to" in sys.argv else None
+            DailyAgent(dry_run="--dry-run" in sys.argv, dm_to=dm_to).run()
         elif command == "weekly":
             logger.info("Running Weekly Agent...")
             agent = WeeklyAgent()

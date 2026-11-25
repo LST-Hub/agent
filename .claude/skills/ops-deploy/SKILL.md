@@ -52,8 +52,8 @@ Check it with `docker logs --tail 50 <name>`, then remove it with `docker rm -f 
 
 ## Crontab (root's crontab, `sudo crontab -e`; **the server clock is UTC**, IST = UTC + 5:30)
 ```
-# IST 08:00 timesheet reminders, 18:00 Wed/Fri weekly, 16:00 Mon summary
-30 2 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent daily            >> /var/log/agent.log 2>&1
+# IST 10:00 missing-timesheet reminders (Teams/email per TIMESHEET_REMINDER_CHANNEL), 18:00 Wed/Fri weekly, 16:00 Mon summary
+30 4 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent daily            >> /var/log/agent.log 2>&1
 30 12 * * 3,5  cd /opt/agent && /usr/bin/docker compose run --rm agent weekly           >> /var/log/agent.log 2>&1
 30 10 * * 1    cd /opt/agent && /usr/bin/docker compose run --rm agent monday-summary   >> /var/log/agent.log 2>&1
 # IST 11:00 plan check, 11:30 daily ops, 11:35 project health, 12:00 follow-ups, 12:05 forecast
@@ -66,6 +66,8 @@ Check it with `docker logs --tail 50 <name>`, then remove it with `docker rm -f 
 30 20 * * *    cd /opt/agent && /usr/bin/docker compose exec -T agent-db pg_dump -U ops_agent ops_agent | gzip > /opt/agent/backups/agent-db-$(date +\%F).sql.gz
 ```
 - `teams-plan-check` also reads and saves the Teams plans, so it runs before daily-ops and forecast.
+- Both reminder jobs send Teams messages from the account signed in with `teams-signin` (the agent account).
+  `daily` uses Teams when `TIMESHEET_REMINDER_CHANNEL=teams` (email only when Teams fails) or `both`.
 - The commands skip weekends and company holidays themselves where that matters.
 
 ## Checking a problem

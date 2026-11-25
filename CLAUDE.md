@@ -16,7 +16,8 @@ Teams login) lives in its own PostgreSQL `agent-db`.
 | `teams-allocations [--sample FILE] [--no-save]` | Read the Teams chat, extract plans with OpenAI, save to agent-db |
 | `teams-plan-check [--dry-run] [--dm-to EMAIL]` | 11:00 check: who has not posted today's plan; Teams reminders; summary email |
 | `teams-signin [--status]`, `teams-signout` | Account the Teams reminders are sent from (device code sign-in) |
-| `daily`, `weekly`, `weekly-report`, `weekly-billable-report`, `monday-summary` | Older timesheet reminders and weekly Excel reports (SharePoint upload) |
+| `daily [--dry-run] [--dm-to EMAIL]` | 10:00 missing/incomplete timesheet reminders; `TIMESHEET_REMINDER_CHANNEL` email, teams or both |
+| `weekly`, `weekly-report`, `weekly-billable-report`, `monday-summary` | Older weekly reminders and Excel reports (SharePoint upload) |
 
 ## Running locally (this PC)
 - Always use `.venv\Scripts\python.exe scripts\local_run.py <command> [args] [--email-to ME] [--today YYYY-MM-DD]`.
