@@ -110,10 +110,23 @@ class ChatAllocationMessage(Base):
     message_id = Column(String(64), nullable=False, unique=True)
     user_id = Column(Integer, nullable=False, index=True)
     work_date = Column(Date, nullable=False, index=True)
-    status = Column(String(16), nullable=False)   # saved, partly, needs_fix, no_plan, failed
+    status = Column(String(16), nullable=False)   # pending, needs_fix, no_plan, confirmed, partly, failed, cancelled, nothing
     written = Column(Text)                        # rows sent to TaskSprint: project/task/seconds
     reply = Column(Text)                          # what the agent answered
     processed_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ChatPendingPlan(Base):
+    """A plan read from someone's 1:1 chat, waiting for them to reply "yes" before it goes to TaskSprint."""
+    __tablename__ = "chat_pending_plans"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    work_date = Column(Date, nullable=False, index=True)
+    rows = Column(Text, nullable=False)            # JSON: project/task ids and names, seconds, note
+    status = Column(String(16), nullable=False)    # pending, confirmed, partly, failed, cancelled, replaced
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    decided_at = Column(DateTime)
 
 
 _session_factory = None

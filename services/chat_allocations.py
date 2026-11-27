@@ -14,6 +14,7 @@ Plain, testable rules (the AI only turns the message into rows; see allocation_e
 """
 
 import html
+import json
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
@@ -155,31 +156,71 @@ def build_plan(raw_rows: Iterable[RawAllocation], sender_names: Iterable[str], t
     return plan
 
 
-def reply_html(name: str, today: date, plan: ChatPlan, pm_notes: Dict[int, str] = None,
-               saved: bool = True) -> str:
-    """The agent's answer in the 1:1 chat. plan.rows are the rows saved (or, with saved=False, that would be).
-    pm_notes: project id -> what happened with its PM, e.g. "I have asked the PM, Asha K, to add you"."""
-    e = html.escape
+YES_WORDS = {"yes", "y", "yes save", "yes please", "ok", "okay", "ok save", "confirm", "confirmed", "correct",
+             "save", "save it", "haan", "ha", "han", "ho", "done"}
+NO_WORDS = {"no", "n", "cancel", "dont save", "don t save", "do not save", "wrong", "nahi", "nako"}
+YES_EMOJI = "\U0001F44D✅✔️ "   # thumbs up, check marks (and the emoji variation selector)
+
+
+def classify_reply(text: str) -> str:
+    """'yes' (save the waiting plan), 'no' (drop it) or 'plan' (anything else, read by the AI)."""
+    raw = (text or "").strip()
+    if raw and all(ch in YES_EMOJI for ch in raw):
+        return "yes"
+    key = normalize(raw)
+    if key in YES_WORDS:
+        return "yes"
+    if key in NO_WORDS:
+        return "no"
+    return "plan"
+
+
+def rows_to_json(rows: Sequence[AllocationRow]) -> str:
+    return json.dumps([r.__dict__ for r in rows])
+
+
+def rows_from_json(text: str) -> List[AllocationRow]:
+    return [AllocationRow(**r) for r in json.loads(text or "[]")]
+
+
+def greeting_html(name: str) -> str:
     first = (name or "").split()[0] if name else ""
-    parts = [f"<p>Hi {e(first)},</p>"]
+    return f"<p>Hi {html.escape(first)},</p>"
+
+
+def reply_html(today: date, plan: ChatPlan, pm_notes: Dict[int, str] = None, state: str = "pending") -> str:
+    """
+    One part of the agent's answer in the 1:1 chat.
+    state: "pending" (rows read, waiting for yes), "saved" (rows saved after yes) or "dry" (dry run).
+    pm_notes: project id -> what happened with its PM, e.g. "I have asked the PM, Asha K, to add you".
+    """
+    e = html.escape
+    parts = []
     if plan.rows:
-        verb = "Saved" if saved else "Would save"
-        parts.append(f"<p>{verb} your plan for {today:%d-%m-%Y} in TaskSprint ({_hours(plan.total_seconds)}):</p><ul>"
+        lead = {"saved": "Saved your plan", "dry": "Read your plan (dry run)"}.get(state, "I read your plan")
+        parts.append(f"<p>{lead} for {today:%d-%m-%Y} ({_hours(plan.total_seconds)}):</p><ul>"
                      + "".join(f"<li>{e(r.project_name)} / {e(r.task_name)}: {_hours(r.seconds)}"
                                + (f" ({e(r.note)})" if r.note else "") + "</li>" for r in plan.rows) + "</ul>")
         if plan.total_seconds > LONG_DAY_SECONDS:
-            parts.append("<p>That is more than 8 h in total; correct it in TaskSprint if needed.</p>")
+            parts.append("<p>That is more than 8 h in total.</p>")
+        if state != "saved":
+            parts.append("<p><b>Reply yes to save it in TaskSprint</b>, or send the whole corrected plan to replace it "
+                         "(no to drop it).</p>")
     if plan.skipped:
         parts.append("<p>Already in TaskSprint:</p><ul>" + "".join(f"<li>{e(s)}</li>" for s in plan.skipped) + "</ul>")
     if plan.not_member:
         notes = pm_notes or {}
-        parts.append("<p>You are not on these projects in TaskSprint, so they were not saved:</p><ul>" + "".join(
+        parts.append("<p>You are not on these projects in TaskSprint, so they cannot be saved:</p><ul>" + "".join(
             f"<li>{e(n.project_name)}: {e(notes.get(n.project_id) or 'ask the PM to add you')}</li>"
             for n in plan.not_member) + "</ul><p>Once you are added to the project and its task, send that part again.</p>")
     if plan.problems:
         parts.append("<p>Please fix and send again:</p><ul>" + "".join(f"<li>{e(p)}</li>" for p in plan.problems)
                      + "</ul>")
     return "".join(parts)
+
+
+NOTHING_WAITING_HTML = "<p>There is no plan waiting to be saved. Send today's plan first, e.g. Project - Task - 3 h.</p>"
+CANCELLED_HTML = "<p>OK, that plan was not saved. Send the corrected plan when you are ready.</p>"
 
 
 def has_content(plan: ChatPlan) -> bool:

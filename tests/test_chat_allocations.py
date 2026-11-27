@@ -4,7 +4,9 @@ from unittest import mock
 
 from services.allocation_extraction import RawAllocation
 from services.allocation_matching import NameMatcher
-from services.chat_allocations import build_plan, has_content, pick_task, pm_message_html, reply_html
+from services.chat_allocations import (
+    build_plan, classify_reply, has_content, pick_task, pm_message_html, reply_html,
+)
 from services.tasksprint_api import TaskSprintClient, TaskSprintError
 from services.teams_chat_service import ChatMessage
 from services.teams_sender import SendResult
@@ -92,13 +94,25 @@ class BuildPlanTests(unittest.TestCase):
     def test_no_plan_means_no_reply(self):
         self.assertFalse(has_content(plan_for([])))
 
-    def test_reply_lists_saved_rows_and_escapes(self):
+    def test_reply_asks_for_yes_and_escapes(self):
         p = plan_for([raw(hours=9), raw("Apollo")])
-        text = reply_html("Sachin Ubale", TODAY, p, {4: "I have asked the PM, Asha <PM>, to add you"})
-        self.assertIn("Saved your plan for 27-11-2026", text)
+        text = reply_html(TODAY, p, {4: "I have asked the PM, Asha <PM>, to add you"})
+        self.assertIn("I read your plan for 27-11-2026", text)
+        self.assertIn("Reply yes to save it", text)
         self.assertIn("Protecta / Development: 9 h", text)
         self.assertIn("more than 8 h", text)
         self.assertIn("Apollo: I have asked the PM, Asha &lt;PM&gt;, to add you", text)
+        saved = reply_html(TODAY, p, state="saved")
+        self.assertIn("Saved your plan", saved)
+        self.assertNotIn("Reply yes", saved)
+
+    def test_classify_reply(self):
+        for text in ("yes", "Yes!", "ok", "Confirm", "haan", "\U0001F44D", "✅"):
+            self.assertEqual(classify_reply(text), "yes", text)
+        for text in ("no", "Cancel", "don't save"):
+            self.assertEqual(classify_reply(text), "no", text)
+        for text in ("Protecta - Development - 2h", "yes, but Protecta 3h", ""):
+            self.assertEqual(classify_reply(text), "plan", text)
 
     def test_pm_message(self):
         p = plan_for([raw("Apollo", "Design", 3)])
@@ -206,34 +220,49 @@ class FakeClient:
 
 
 class FakeQuery:
-    def __init__(self, store, kw=None):
-        self.store, self.kw = store, kw or {}
+    """Enough of a SQLAlchemy query for the agent: filter_by/order_by/first on a model, filter/all on a column."""
+
+    def __init__(self, store, model, column=None, kw=None):
+        self.store, self.model, self.column, self.kw = store, model, column, kw or {}
+
+    def _rows(self):
+        return [r for r in self.store.objects if type(r).__name__ == self.model
+                and all(getattr(r, k) == v for k, v in self.kw.items())]
 
     def filter(self, *_):
         return self
 
     def filter_by(self, **kw):
-        return FakeQuery(self.store, kw)
+        return FakeQuery(self.store, self.model, self.column, kw)
+
+    def order_by(self, *_):
+        return self      # the agent only orders by id descending: first() returns the newest
 
     def first(self):
-        return next((r for r in self.store.logs if all(getattr(r, k) == v for k, v in self.kw.items())), None)
+        rows = self._rows()
+        return rows[-1] if rows else None
 
     def all(self):
-        return [(r.message_id,) for r in self.store.rows]
+        return [(getattr(r, self.column),) for r in self._rows()]
 
 
 class FakeStore:
     def __init__(self):
-        self.rows, self.logs = [], []
+        self.objects = []
 
-    def query(self, *_):
-        return FakeQuery(self)
+    def query(self, what):
+        if hasattr(what, "__tablename__"):
+            return FakeQuery(self, what.__name__)
+        return FakeQuery(self, what.class_.__name__, what.key)     # a column such as Model.message_id
 
     def add(self, row):
-        (self.logs if type(row).__name__ == "NotificationLog" else self.rows).append(row)
+        self.objects.append(row)
 
     def commit(self):
         pass
+
+    def of(self, model):
+        return [r for r in self.objects if type(r).__name__ == model]
 
 
 class User:
@@ -270,46 +299,80 @@ class AgentTests(unittest.TestCase):
             result = agent.run()
         return result, teams, client, store
 
-    def msg(self, mid, sender_id="me", hour=10):
-        return ChatMessage(mid, datetime(2026, 11, 27, hour, 0), "Sachin Ubale", "Protecta - Development - 2h",
-                           sender_id=sender_id)
+    def msg(self, mid, text="Protecta - Development - 2h", sender_id="me", hour=10):
+        return ChatMessage(mid, datetime(2026, 11, 27, hour, 0), "Sachin Ubale", text, sender_id=sender_id)
 
-    def test_saves_replies_and_handles_each_message_once(self):
-        messages = [self.msg("m1"), self.msg("r1", sender_id="agent-id")]
-        rows = [raw(msg="m1"), raw("Minimalist", "", 3, msg="m1")]
+    @staticmethod
+    def statuses(store):
+        return [(r.message_id, r.status) for r in store.of("ChatAllocationMessage")]
+
+    def test_plan_waits_for_yes_then_saves_once(self):
         store = FakeStore()
-        _, teams, client, _ = self.run_agent(messages, rows, store=store)
-        self.assertEqual(sorted(c[0] for c in client.created), [1, 2])
-        self.assertEqual(client.created[0][2][0]["employeeId"], 60)
-        self.assertEqual(len(teams.sent), 1)
-        self.assertIn("Saved your plan", teams.sent[0][1])
-        self.assertEqual([(r.message_id, r.status) for r in store.rows], [("m1", "saved")])
-        # A second run finds nothing new
-        _, teams2, client2, _ = self.run_agent(messages, rows, store=store)
-        self.assertEqual(client2.created, [])
-        self.assertEqual(teams2.sent, [])
+        rows = [raw(msg="m1"), raw("Minimalist", "", 3, msg="m1")]
+        _, teams, client, _ = self.run_agent([self.msg("m1"), self.msg("r1", sender_id="agent-id")], rows, store=store)
+        self.assertEqual(client.created, [])                      # nothing saved before yes
+        self.assertIn("Reply yes to save it", teams.sent[0][1])
+        self.assertEqual(self.statuses(store), [("m1", "pending")])
 
-    def test_dry_run_writes_and_sends_nothing(self):
+        # "yes" in the next run saves the waiting plan
+        history = [self.msg("m1"), self.msg("y1", "yes", hour=11)]
+        _, teams2, client2, _ = self.run_agent(history, rows, store=store)
+        self.assertEqual(sorted(c[0] for c in client2.created), [1, 2])
+        self.assertEqual(client2.created[0][2][0]["employeeId"], 60)
+        self.assertIn("Saved your plan", teams2.sent[0][1])
+        self.assertEqual(store.of("ChatPendingPlan")[0].status, "confirmed")
+
+        # Nothing new: no reply, nothing saved again; a second yes finds nothing waiting
+        _, teams3, client3, _ = self.run_agent(history, rows, store=store)
+        self.assertEqual((teams3.sent, client3.created), ([], []))
+        _, teams4, client4, _ = self.run_agent(history + [self.msg("y2", "ok", hour=12)], rows, store=store)
+        self.assertEqual(client4.created, [])
+        self.assertIn("no plan waiting", teams4.sent[0][1])
+
+    def test_plan_and_yes_in_the_same_run(self):
+        _, teams, client, _ = self.run_agent([self.msg("m1"), self.msg("y1", "\U0001F44D", hour=11)], [raw(msg="m1")])
+        self.assertEqual([c[0] for c in client.created], [1])
+        self.assertEqual(len(teams.sent), 1)
+        self.assertIn("Reply yes to save it", teams.sent[0][1])
+        self.assertIn("Saved your plan", teams.sent[0][1])
+
+    def test_new_plan_replaces_the_waiting_one(self):
+        store = FakeStore()
+        self.run_agent([self.msg("m1")], [raw(hours=2, msg="m1")], store=store)
+        self.run_agent([self.msg("m2", "Protecta - Development - 5h", hour=11)], [raw(hours=5, msg="m2")], store=store)
+        _, _, client, _ = self.run_agent([self.msg("y1", "yes", hour=12)], [], store=store)
+        self.assertEqual(client.created[0][2][0]["seconds"], 5 * 3600)
+        self.assertEqual([p.status for p in store.of("ChatPendingPlan")], ["replaced", "confirmed"])
+
+    def test_no_drops_the_waiting_plan(self):
+        store = FakeStore()
+        self.run_agent([self.msg("m1")], [raw(msg="m1")], store=store)
+        _, teams, client, _ = self.run_agent([self.msg("n1", "no", hour=11)], [], store=store)
+        self.assertEqual(client.created, [])
+        self.assertIn("not saved", teams.sent[0][1])
+        self.assertEqual(store.of("ChatPendingPlan")[0].status, "cancelled")
+
+    def test_dry_run_saves_and_sends_nothing(self):
         store = FakeStore()
         result, teams, client, _ = self.run_agent([self.msg("m1")], [raw(msg="m1")], store=store, dry_run=True)
-        self.assertEqual(client.created, [])
-        self.assertEqual(teams.sent, [])
-        self.assertEqual(store.rows, [])
-        self.assertIn("Would save", result[0]["reply"])
+        self.assertEqual((client.created, teams.sent, store.objects), ([], [], []))
+        self.assertIn("dry run", result[0]["reply"])
 
     def test_refused_project_is_reported(self):
-        rows = [raw(msg="m1"), raw("Minimalist", "", 3, msg="m1")]
         store = FakeStore()
-        _, teams, client, _ = self.run_agent([self.msg("m1")], rows, client=FakeClient(fail_projects={2}), store=store)
+        rows = [raw(msg="m1"), raw("Minimalist", "", 3, msg="m1")]
+        self.run_agent([self.msg("m1")], rows, store=store)
+        _, teams, client, _ = self.run_agent([self.msg("y1", "yes", hour=11)], [], client=FakeClient(fail_projects={2}),
+                                             store=store)
         self.assertEqual([c[0] for c in client.created], [1])
         self.assertIn("TaskSprint did not save it", teams.sent[0][1])
-        self.assertEqual(store.rows[0].status, "partly")
+        self.assertEqual(store.of("ChatPendingPlan")[0].status, "partly")
 
     def test_message_without_plan_gets_no_reply(self):
         store = FakeStore()
-        _, teams, _, _ = self.run_agent([self.msg("m1")], [], store=store)
+        _, teams, _, _ = self.run_agent([self.msg("m1", "good morning")], [], store=store)
         self.assertEqual(teams.sent, [])
-        self.assertEqual(store.rows[0].status, "no_plan")
+        self.assertEqual(self.statuses(store), [("m1", "no_plan")])
 
     def test_pm_is_told_once_per_day(self):
         store = FakeStore()
@@ -318,7 +381,8 @@ class AgentTests(unittest.TestCase):
         self.assertEqual([t for t, _ in teams.sent], ["pm4@x.com", "sachin@x.com"])
         self.assertIn("Sachin Ubale posted a work plan", teams.sent[0][1])
         self.assertIn("Apollo: I have asked the PM, Asha K, to add you", teams.sent[1][1])
-        self.assertEqual(store.rows[0].status, "needs_fix")
+        self.assertEqual(self.statuses(store), [("m1", "needs_fix")])
+        self.assertEqual(store.of("ChatPendingPlan"), [])
         # A new message for the same project the same day: the PM is not asked again
         _, teams2, _, _ = self.run_agent([self.msg("m2", hour=11)], [raw("Apollo", "Design", 2, msg="m2")], store=store)
         self.assertEqual([t for t, _ in teams2.sent], ["sachin@x.com"])
@@ -329,6 +393,16 @@ class AgentTests(unittest.TestCase):
         _, teams, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
         self.assertEqual(teams.sent[0][0], "tester@x.com")
         self.assertIn("[TEST, meant for Asha K]", teams.sent[0][1])
+
+    def test_ignored_pm_only_messaged_when_in_pm_list(self):
+        from agents import chat_allocation_agent as ca
+        with mock.patch.object(ca.settings, "ignore_ids", "74"):
+            _, teams, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
+            self.assertEqual([t for t, _ in teams.sent], ["sachin@x.com"])
+            self.assertIn("ask the PM, Asha K, to add you", teams.sent[0][1])
+            with mock.patch.object(ca.settings, "chat_pm_ids", "74"):
+                _, teams2, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
+            self.assertEqual([t for t, _ in teams2.sent], ["pm4@x.com", "sachin@x.com"])
 
 
 if __name__ == "__main__":

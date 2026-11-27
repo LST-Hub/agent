@@ -127,6 +127,12 @@ class AppSettings:
     # People whose 1:1 chat with the agent is read for day plans (emails, comma-separated; empty = nobody)
     chat_allocation_users: str = field(default_factory=lambda: os.getenv("CHAT_ALLOCATION_USERS", ""))
 
+    # PMs on IGNORE_ID who still get "please add X to your project" messages from chat-allocations (user IDs)
+    chat_pm_ids: str = field(default_factory=lambda: os.getenv("CHAT_PM_IDS", ""))
+
+    def get_chat_pm_ids(self) -> List[int]:
+        return self._parse_id_list(self.chat_pm_ids)
+
     def get_chat_allocation_users(self) -> List[str]:
         return [e.strip().lower() for e in self.chat_allocation_users.split(",") if e.strip()]
 

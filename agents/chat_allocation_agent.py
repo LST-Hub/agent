@@ -1,14 +1,18 @@
 """
 Chat Allocation Agent: reads day plans people post in their 1:1 Teams chat with the agent
-account, writes them to TaskSprint as allocations (through the TaskSprint API, as the
-agent's TaskSprint account) and answers in the same chat with what was saved or what to fix.
+account and, once the person confirms, writes them to TaskSprint as allocations (through
+the TaskSprint API, as the agent's TaskSprint account).
+
+Conversation: the person posts a plan -> the agent answers "I read: Project / Task / hours, reply
+yes to save" (and what to fix) -> "yes" saves the waiting plan, "no" drops it, a new plan replaces it.
 
 - Only people in CHAT_ALLOCATION_USERS are read (empty = nobody); IGNORE_ID people are skipped.
 - Only today's messages; each message is handled once (agent-db chat_allocation_messages).
 - TaskSprint is read from MySQL (read-only) and written only through its API.
 - A plan for a project the person is not a member of is not saved; the project's PM gets a Teams
   message from the agent (once per person, project and day; TEAMS_DM_TEST_RECIPIENT test mode applies).
-- --dry-run: reads and matches, prints what would be saved and the reply; writes and sends nothing.
+  PMs on IGNORE_ID get it only when they are in CHAT_PM_IDS.
+- --dry-run: reads and matches, prints the reply; saves, writes and sends nothing.
 
 Run it every few minutes during office hours from cron.
 """
@@ -30,7 +34,8 @@ from database.repositories.user_repo import UserRepository
 from services.allocation_extraction import OpenAIAllocationExtractor
 from services.allocation_matching import NameMatcher, load_aliases
 from services.chat_allocations import (
-    AllocationRow, ChatPlan, NotMember, build_plan, has_content, pm_message_html, reply_html,
+    CANCELLED_HTML, NOTHING_WAITING_HTML, AllocationRow, ChatPlan, NotMember, build_plan, classify_reply,
+    greeting_html, has_content, pm_message_html, reply_html, rows_from_json, rows_to_json,
 )
 from services.project_health_service import CLOSED_STATUSES
 from services.tasksprint_api import TaskSprintClient, TaskSprintError
@@ -202,6 +207,38 @@ class ChatAllocationAgent:
             logger.info(f"{user.name}: no new messages today.")
             return None
 
+        ctx = self._context(user)
+        # Messages in the order sent: plan text is collected until a "yes" / "no", which acts on the plan before it
+        parts, buffer = [], []
+        for m in new:
+            kind = classify_reply(m.text)
+            if kind == "plan":
+                buffer.append(m)
+                continue
+            if buffer:
+                parts.append(self._read_plan(store, teams, user, buffer, ctx))
+                buffer = []
+            parts.append(self._answer(store, user, m, kind))
+        if buffer:
+            parts.append(self._read_plan(store, teams, user, buffer, ctx))
+
+        result = {"user": user.name, "messages": len(new), "reply": ""}
+        body = "".join(p for p in parts if p)
+        if not body:
+            logger.info(f"{user.name}: {len(new)} new message(s) without a plan; no reply.")
+            return result
+        html_text = greeting_html(user.name) + body
+        result["reply"] = html_text
+        if self.dry_run:
+            print(f"\n--- {user.name} ({email}): {len(new)} new message(s) ---\n  reply: {html_text}")
+            return result
+        sent = teams.send(email, html_text)
+        if not sent.ok:
+            logger.error(f"Reply to {email} not sent: {sent.error}")
+        return result
+
+    def _context(self, user) -> Dict:
+        """TaskSprint data for matching one person's plan (read-only)."""
         session = next(get_db_session())
         try:
             projects = [p for p in ProjectRepository(session).get_projects_for_matching()
@@ -211,53 +248,84 @@ class ChatAllocationAgent:
             existing = ResourceAllocationRepository(session).get_user_day_allocations(user.id, self.today)
         finally:
             session.close()
-        names = {p["id"]: p["name"] for p in projects}
-        active = {p["id"] for p in projects if p.get("active")}
-        project_info = {p["id"]: p for p in projects}
         tasks_by_project: Dict[int, List[Dict]] = defaultdict(list)
         for t in tasks:
             tasks_by_project[t["projectId"]].append(t)
+        return {"names": {p["id"]: p["name"] for p in projects},
+                "active": {p["id"] for p in projects if p.get("active")},
+                "projects": {p["id"]: p for p in projects},
+                "member_ids": member_ids, "tasks": tasks_by_project, "existing": existing}
 
+    def _existing_now(self, user_id: int) -> List[Dict]:
+        session = next(get_db_session())
+        try:
+            return ResourceAllocationRepository(session).get_user_day_allocations(user_id, self.today)
+        finally:
+            session.close()
+
+    def _pending(self, store, user_id: int):
+        from database.agent_store import ChatPendingPlan
+        return (store.query(ChatPendingPlan)
+                .filter_by(user_id=user_id, work_date=self.today, status="pending")
+                .order_by(ChatPendingPlan.id.desc()).first())
+
+    def _read_plan(self, store, teams, user, messages, ctx) -> str:
+        """Plan messages -> waiting plan + the reply part asking for yes (and what to fix)."""
+        from database.agent_store import ChatPendingPlan, _utcnow
         extractor = self._extractor or OpenAIAllocationExtractor(settings.ai.api_key, settings.ai.extraction_model)
-        raw = extractor.extract(new, [user.name], [names[i] for i in active])
+        raw = extractor.extract(messages, [user.name], [ctx["names"][i] for i in ctx["active"]])
         _, project_aliases = load_aliases()
-        plan = build_plan(raw, {user.name, *(m.sender for m in new)}, self.today,
-                          NameMatcher(names, project_aliases, preferred=active), active, member_ids,
-                          tasks_by_project, existing)
-
-        result = {"user": user.name, "messages": len(new), "plan": plan}
+        plan = build_plan(raw, {user.name, *(m.sender for m in messages)}, self.today,
+                          NameMatcher(ctx["names"], project_aliases, preferred=ctx["active"]), ctx["active"],
+                          ctx["member_ids"], ctx["tasks"], ctx["existing"])
         if not has_content(plan):
-            logger.info(f"{user.name}: {len(new)} new message(s) without a plan; no reply.")
-            self._mark(store, new, user.id, "no_plan", plan, "")
-            return result
-
+            self._mark(store, messages, user.id, "no_plan", "")
+            return ""
         if self.dry_run:
-            pm_notes = {n.project_id: f"the PM, {project_info[n.project_id].get('pmName') or 'not set'}, would be asked to add you"
-                        for n in plan.not_member}
-            html_text = reply_html(user.name, self.today, plan, pm_notes, saved=False)
-            print(f"\n--- {user.name} ({email}): {len(new)} new message(s) ---")
-            for r in plan.rows:
-                print(f"  would save  {r.project_name} / {r.task_name}: {r.seconds / 3600:g} h  {r.note}")
-            for line in plan.skipped + [f"not on project {n.project_name}" for n in plan.not_member] + plan.problems:
-                print(f"  not saved   {line}")
-            print(f"  reply: {html_text}")
-            result["reply"] = html_text
-            return result
+            pm_notes = {n.project_id: f"the PM, {ctx['projects'][n.project_id].get('pmName') or 'not set'}, "
+                                      "would be asked to add you" for n in plan.not_member}
+            return reply_html(self.today, plan, pm_notes, state="dry")
+        pm_notes = {n.project_id: self._tell_pm(store, teams, user, n, ctx["projects"][n.project_id])
+                    for n in plan.not_member}
+        if plan.rows:
+            earlier = self._pending(store, user.id)
+            if earlier is not None:          # a new plan replaces the one still waiting
+                earlier.status, earlier.decided_at = "replaced", _utcnow()
+            store.add(ChatPendingPlan(user_id=user.id, work_date=self.today, rows=rows_to_json(plan.rows),
+                                      status="pending"))
+        part = reply_html(self.today, plan, pm_notes, state="pending")
+        self._mark(store, messages, user.id, "pending" if plan.rows else "needs_fix", part)
+        logger.info(f"{user.name}: plan read ({len(plan.rows)} row(s) waiting for yes).")
+        return part
 
+    def _answer(self, store, user, message, kind: str) -> str:
+        """A "yes" saves the waiting plan in TaskSprint; a "no" drops it."""
+        from database.agent_store import _utcnow
+        pending = self._pending(store, user.id)
+        if pending is None:
+            self._mark(store, [message], user.id, "nothing", NOTHING_WAITING_HTML)
+            return NOTHING_WAITING_HTML
+        if kind == "no":
+            if not self.dry_run:
+                pending.status, pending.decided_at = "cancelled", _utcnow()
+            self._mark(store, [message], user.id, "cancelled", CANCELLED_HTML)
+            return CANCELLED_HTML
+
+        rows = rows_from_json(pending.rows)
+        already = {(e["projectId"], e["taskId"]) for e in self._existing_now(user.id)}
+        plan = ChatPlan(rows=[r for r in rows if (r.project_id, r.task_id) not in already],
+                        skipped=[f"{r.project_name} / {r.task_name}: already allocated today."
+                                 for r in rows if (r.project_id, r.task_id) in already])
+        if self.dry_run:
+            return "<p>(dry run) yes would save:</p>" + reply_html(self.today, plan, state="saved")
         wanted = len(plan.rows)
         plan = write_plan(self._client or self._get_client(), self.today, user.id, plan)
-        pm_notes = {n.project_id: self._tell_pm(store, teams, user, n, project_info[n.project_id])
-                    for n in plan.not_member}
-        html_text = reply_html(user.name, self.today, plan, pm_notes)
-        sent = teams.send(email, html_text)
-        if not sent.ok:
-            logger.error(f"Reply to {email} not sent: {sent.error}")
-        status = ("failed" if wanted and not plan.rows else "saved" if plan.rows and not
-                  (plan.problems or plan.not_member) else "partly" if plan.rows else "needs_fix")
-        self._mark(store, new, user.id, status, plan, html_text)
-        logger.info(f"{user.name}: {len(plan.rows)} allocation row(s) saved in TaskSprint ({status}).")
-        result.update(reply=html_text, status=status)
-        return result
+        status = "failed" if wanted and not plan.rows else "partly" if plan.problems else "confirmed"
+        pending.status, pending.decided_at = status, _utcnow()
+        part = reply_html(self.today, plan, state="saved")
+        self._mark(store, [message], user.id, status, part)
+        logger.info(f"{user.name}: confirmed, {len(plan.rows)} allocation row(s) saved in TaskSprint ({status}).")
+        return part
 
     def _tell_pm(self, store, teams, user, entry: NotMember, project: Dict) -> str:
         """Ask the project's PM to add the person. Returns the line for the person's reply."""
@@ -267,8 +335,8 @@ class ChatAllocationAgent:
             return "the project has no PM in TaskSprint; ask the operations team to add you"
         if pm_id == user.id:
             return "you are its PM; add yourself to the project and the task in TaskSprint"
-        if pm_id in set(settings.get_ignore_id_list()):
-            return f"ask the PM, {pm_name}, to add you"
+        if pm_id in set(settings.get_ignore_id_list()) and pm_id not in set(settings.get_chat_pm_ids()):
+            return f"ask the PM, {pm_name}, to add you"     # IGNORE_ID people get no Teams messages
         pm_email = _id_to_email().get(pm_id) or (project.get("pmEmail") or "").strip()
         if not pm_email:
             return f"ask the PM, {pm_name}, to add you (no email found for them)"
@@ -293,15 +361,14 @@ class ChatAllocationAgent:
             self._client = tasksprint_client()
         return self._client
 
-    def _mark(self, store, messages, user_id: int, status: str, plan: ChatPlan, reply: str):
+    def _mark(self, store, messages, user_id: int, status: str, reply: str):
+        """Remember that these messages are handled (never in a dry run)."""
         from database.agent_store import ChatAllocationMessage
         if self.dry_run:
             return
-        written = json.dumps([{"project_id": r.project_id, "task_id": r.task_id, "seconds": r.seconds}
-                              for r in plan.rows])
         for m in messages:
             store.add(ChatAllocationMessage(message_id=m.id, user_id=user_id, work_date=self.today,
-                                            status=status, written=written, reply=reply))
+                                            status=status, reply=reply))
         store.commit()
 
 

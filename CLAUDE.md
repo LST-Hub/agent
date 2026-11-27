@@ -16,7 +16,7 @@ Teams login) lives in its own PostgreSQL `agent-db`.
 | `teams-allocations [--sample FILE] [--no-save]` | Read the Teams chat, extract plans with OpenAI, save to agent-db |
 | `teams-plan-check [--dry-run] [--dm-to EMAIL]` | 11:00 check: who has not posted today's plan; Teams reminders; summary email |
 | `teams-signin [--status] [--send-only]`, `teams-signout` | Account the Teams reminders are sent from (device code sign-in; asks for Chat.Read too) |
-| `chat-allocations [--dry-run]` | Plans posted in 1:1 chats with the agent (`CHAT_ALLOCATION_USERS` only) -> TaskSprint allocations via its API; replies in the chat; asks the PM (Teams, test mode applies) when the person is not on the project. Cron: every 2 min |
+| `chat-allocations [--dry-run]` | Plans posted in 1:1 chats with the agent (`CHAT_ALLOCATION_USERS` only): the agent answers what it read, saves to TaskSprint (API) only after the person replies yes (no = drop, new plan = replace); asks the PM (Teams, test mode applies) when the person is not on the project. Cron: every 2 min |
 | `tasksprint-check [--user ID]` | Log in to the TaskSprint API as the agent account (user 116) and list today's allocations; read only |
 | `daily [--dry-run] [--dm-to EMAIL]` | 10:00 missing/incomplete timesheet reminders; `TIMESHEET_REMINDER_CHANNEL` email, teams or both |
 | `weekly`, `weekly-report`, `weekly-billable-report`, `monday-summary` | Older weekly reminders and Excel reports (SharePoint upload) |
@@ -78,6 +78,7 @@ Teams login) lives in its own PostgreSQL `agent-db`.
   - `IGNORE_ID`: excluded from every report.
   - `TEAMS_PLAN_IGNORE_IDS`: not expected to post plans.
   - `CHAT_ALLOCATION_USERS`: emails whose 1:1 chat with the agent is read for plans (empty = nobody).
+  - `CHAT_PM_IDS`: PMs on IGNORE_ID who still get "please add X to your project" messages from chat-allocations.
   - `FOLLOWUP_IGNORE_PM_IDS`.
   - `PM_EMAIL`: summary report recipients.
   - Test recipients and email transport settings (`EMAIL_TRANSPORT` smtp|graph, `GRAPH_SENDER_MAILBOX`).
