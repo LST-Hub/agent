@@ -31,6 +31,7 @@ class ChatMessage:
     sent_at: datetime   # Local office time, naive
     sender: str
     text: str
+    sender_id: str = ""  # Microsoft account id of the sender (empty in sample files)
 
 
 def html_to_text(content: str) -> str:
@@ -95,41 +96,46 @@ class TeamsChatService:
         self._token = response.json()["access_token"]
         return self._token
 
-    def _to_local(self, iso: str) -> datetime:
-        return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(self.local_tz).replace(tzinfo=None)
-
     def fetch_messages(self, since: datetime) -> List[ChatMessage]:
         """User messages created or edited after `since` (local time), oldest first."""
-        since_utc = since.replace(tzinfo=self.local_tz).astimezone(timezone.utc)
-        url = f"{GRAPH}/chats/{self.chat_id}/messages"
-        params = {
-            "$top": PAGE_SIZE,
-            "$orderby": "lastModifiedDateTime desc",
-            "$filter": f"lastModifiedDateTime gt {since_utc.strftime('%Y-%m-%dT%H:%M:%S.000Z')}",
-        }
-        headers = {"Authorization": f"Bearer {self._get_token()}"}
-        messages: List[ChatMessage] = []
-        while url:
-            response = requests.get(url, headers=headers, params=params, timeout=60)
-            if response.status_code == 403:
-                logger.error(f"Graph refused access to the chat (403): {response.text[:500]}")
-            response.raise_for_status()
-            payload = response.json()
-            for m in payload.get("value", []):
-                if m.get("messageType") != "message" or m.get("deletedDateTime"):
-                    continue
-                body = m.get("body") or {}
-                content = body.get("content") or ""
-                text = html_to_text(content) if body.get("contentType") == "html" else content.strip()
-                if not text:
-                    continue
-                user = (m.get("from") or {}).get("user") or {}
-                messages.append(ChatMessage(
-                    id=m["id"],
-                    sent_at=self._to_local(m["createdDateTime"]),
-                    sender=clean_sender(user.get("displayName")),
-                    text=text,
-                ))
-            url, params = payload.get("@odata.nextLink"), None  # nextLink already carries the query
-        logger.info(f"Read {len(messages)} Teams messages since {since:%d-%m-%Y %H:%M}.")
-        return sorted(messages, key=lambda m: m.sent_at)
+        return fetch_chat_messages(self.chat_id, self._get_token(), since, self.local_tz)
+
+
+def fetch_chat_messages(chat_id: str, token: str, since: datetime, local_tz: timezone) -> List[ChatMessage]:
+    """User messages of one chat created or edited after `since` (local time), oldest first.
+    Works with an app token (Chat.Read.All) or a signed-in member's token (Chat.Read)."""
+    to_local = lambda iso: datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(local_tz).replace(tzinfo=None)  # noqa: E731
+    since_utc = since.replace(tzinfo=local_tz).astimezone(timezone.utc)
+    url = f"{GRAPH}/chats/{chat_id}/messages"
+    params = {
+        "$top": PAGE_SIZE,
+        "$orderby": "lastModifiedDateTime desc",
+        "$filter": f"lastModifiedDateTime gt {since_utc.strftime('%Y-%m-%dT%H:%M:%S.000Z')}",
+    }
+    headers = {"Authorization": f"Bearer {token}"}
+    messages: List[ChatMessage] = []
+    while url:
+        response = requests.get(url, headers=headers, params=params, timeout=60)
+        if response.status_code == 403:
+            logger.error(f"Graph refused access to the chat (403): {response.text[:500]}")
+        response.raise_for_status()
+        payload = response.json()
+        for m in payload.get("value", []):
+            if m.get("messageType") != "message" or m.get("deletedDateTime"):
+                continue
+            body = m.get("body") or {}
+            content = body.get("content") or ""
+            text = html_to_text(content) if body.get("contentType") == "html" else content.strip()
+            if not text:
+                continue
+            user = (m.get("from") or {}).get("user") or {}
+            messages.append(ChatMessage(
+                id=m["id"],
+                sent_at=to_local(m["createdDateTime"]),
+                sender=clean_sender(user.get("displayName")),
+                text=text,
+                sender_id=user.get("id") or "",
+            ))
+        url, params = payload.get("@odata.nextLink"), None  # nextLink already carries the query
+    logger.info(f"Read {len(messages)} Teams messages since {since:%d-%m-%Y %H:%M}.")
+    return sorted(messages, key=lambda m: m.sent_at)

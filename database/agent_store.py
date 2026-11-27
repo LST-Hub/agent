@@ -3,7 +3,8 @@ Agent-owned operational store (PostgreSQL in production).
 
 Holds state the agent needs between runs: follow-ups sent to PMs, a log of
 every notification, the day plans read from the Teams allocation chat, and the
-encrypted login of the account Teams reminders are sent from.
+encrypted login of the account Teams reminders are sent from, and which 1:1 chat
+messages have been turned into TaskSprint allocations.
 The PM tool's MySQL database stays read-only.
 
 Tables are created on first use (create_all is idempotent). Move to Alembic
@@ -99,6 +100,20 @@ class TeamsSenderLogin(Base):
     refresh_token = Column(Text, nullable=False)   # Fernet-encrypted with TEAMS_TOKEN_KEY
     signed_in_at = Column(DateTime, nullable=False, default=_utcnow)
     updated_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
+class ChatAllocationMessage(Base):
+    """A message from someone's 1:1 chat with the agent that chat-allocations has handled (each only once)."""
+    __tablename__ = "chat_allocation_messages"
+
+    id = Column(Integer, primary_key=True)
+    message_id = Column(String(64), nullable=False, unique=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    work_date = Column(Date, nullable=False, index=True)
+    status = Column(String(16), nullable=False)   # saved, partly, needs_fix, no_plan, failed
+    written = Column(Text)                        # rows sent to TaskSprint: project/task/seconds
+    reply = Column(Text)                          # what the agent answered
+    processed_at = Column(DateTime, nullable=False, default=_utcnow)
 
 
 _session_factory = None

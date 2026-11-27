@@ -362,12 +362,13 @@ def remind_to_post_plan(people: List[str], asker_email: str, even_if_posted: boo
         finally:
             session.close()
     ignored = set(settings.get_ignore_id_list())
-    targets = []
+    targets, results = [], []
     for query in people:                               # resolve everyone before sending anything
         u = resolve_person(query, users)
-        if u.id in ignored:
-            raise ValueError(f"{u.name} is on the ignore list (IGNORE_ID); no reminder sent to anyone.")
-        if u.id not in {t.id for t in targets}:
+        if u.id in ignored:                            # IGNORE_ID people never get a message
+            if u.name not in {r["person"] for r in results}:
+                results.append({"person": u.name, "status": "not sent: on the ignore list (IGNORE_ID)"})
+        elif u.id not in {t.id for t in targets}:
             targets.append(u)
     from agents.teams_plan_check_agent import _office_emails
     office = _office_emails()
@@ -383,7 +384,6 @@ def remind_to_post_plan(people: List[str], asker_email: str, even_if_posted: boo
     from services.teams_sender import TeamsSignInError
 
     test_to = settings.teams_dm_test_recipient
-    results = []
     store = store_factory()
     try:
         try:

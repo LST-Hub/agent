@@ -1,0 +1,176 @@
+"""
+Day plans posted in a person's 1:1 chat with the agent, turned into TaskSprint allocations.
+
+Plain, testable rules (the AI only turns the message into rows; see allocation_extraction):
+- Only the sender's own plan for today is saved. Other people, other dates, cancellations
+  and rows without hours are answered with what to fix, never guessed.
+- The project must be active and the person a member of it (ProjectUser); otherwise the
+  PM has to add them first.
+- TaskSprint needs a task for every allocation. The written task is matched to the
+  project's active tasks the person is on (TaskUser). With no task written, or no match,
+  a person on exactly one task of the project gets that task; otherwise they are asked.
+- Rows that are already allocated in TaskSprint (same project and task that day) are
+  skipped: adding is supported, changing hours is done in TaskSprint for now.
+"""
+
+import html
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+
+from services.allocation_extraction import RawAllocation
+from services.allocation_matching import NameMatcher, check_name, normalize
+
+MAX_TASKS_LISTED = 8
+LONG_DAY_SECONDS = 8 * 3600
+
+
+@dataclass
+class AllocationRow:
+    project_id: int
+    project_name: str
+    task_id: int
+    task_name: str
+    seconds: int
+    note: str = ""
+
+
+@dataclass
+class ChatPlan:
+    rows: List[AllocationRow] = field(default_factory=list)       # to write to TaskSprint
+    skipped: List[str] = field(default_factory=list)              # already in TaskSprint
+    problems: List[str] = field(default_factory=list)             # the person has to fix these
+    not_member: List[Tuple[int, str]] = field(default_factory=list)  # (project id, name): PM must add the person
+
+    @property
+    def total_seconds(self) -> int:
+        return sum(r.seconds for r in self.rows)
+
+
+def _hours(seconds: float) -> str:
+    return f"{seconds / 3600:g} h"
+
+
+def _task_list(tasks: Sequence[Dict]) -> str:
+    names = sorted(t["name"] for t in tasks)
+    more = f" and {len(names) - MAX_TASKS_LISTED} more" if len(names) > MAX_TASKS_LISTED else ""
+    return ", ".join(names[:MAX_TASKS_LISTED]) + more
+
+
+def pick_task(written: str, project_name: str, tasks: Sequence[Dict]) -> Tuple[Optional[Dict], str, str]:
+    """
+    Task for one row. tasks: active tasks of the project with an `assigned` flag.
+    Returns (task or None, problem, note).
+    """
+    mine = [t for t in tasks if t["assigned"]]
+    if written:
+        m = NameMatcher({t["id"]: t["name"] for t in mine}).match(written)
+        if m.id is not None:
+            note = f"'{written}' read as task {m.name}" if m.method == "fuzzy" else ""
+            return next(t for t in mine if t["id"] == m.id), "", note
+        other = NameMatcher({t["id"]: t["name"] for t in tasks if not t["assigned"]}).match(written)
+        if other.id is not None:
+            return None, (f"{project_name}: you are not on task '{other.name}' in TaskSprint. "
+                          "Ask your PM to add you, or name one of your tasks."), ""
+        if m.method == "ambiguous":
+            return None, f"{project_name}: '{written}' could be {', '.join(m.candidates)}. Which one?", ""
+    if len(mine) == 1:
+        note = (f"'{written}' not found, used your only task {mine[0]['name']}" if written
+                else f"no task written, used your only task {mine[0]['name']}")
+        return mine[0], "", note
+    if not mine:
+        return None, f"{project_name}: you are not on any task of this project in TaskSprint. Ask your PM to add you.", ""
+    asked = f"task '{written}' not found" if written else "which task?"
+    return None, f"{project_name}: {asked} Your tasks: {_task_list(mine)}.", ""
+
+
+def build_plan(raw_rows: Iterable[RawAllocation], sender_names: Iterable[str], today: date,
+               projects: NameMatcher, active_project_ids: Set[int], member_project_ids: Set[int],
+               tasks_by_project: Dict[int, List[Dict]], existing: Sequence[Dict]) -> ChatPlan:
+    """
+    raw_rows: rows extracted from the person's new messages. sender_names: their TaskSprint and
+    Teams names. existing: their allocation rows in TaskSprint for today ({projectId, taskId}).
+    """
+    plan = ChatPlan()
+    already = {(e["projectId"], e["taskId"]) for e in existing}
+    merged: Dict[Tuple[int, int], AllocationRow] = {}
+    me = {normalize(n) for n in sender_names if n}
+
+    for raw in raw_rows:
+        label = raw.project_text or raw.project or "plan"
+        if normalize(raw.person) not in me and normalize(raw.person_text) not in me:
+            plan.problems.append(f"'{raw.evidence}': only your own plan can be saved from this chat.")
+            continue
+        if not (raw.start_date == raw.end_date == today):
+            when = (f"{raw.start_date:%d-%m-%Y}" if raw.start_date == raw.end_date
+                    else f"{raw.start_date:%d-%m-%Y} to {raw.end_date:%d-%m-%Y}")
+            plan.problems.append(f"{label}: only today's plan is saved for now (you wrote {when}).")
+            continue
+        if raw.project is None or raw.hours_per_day == 0:
+            plan.problems.append(f"{label}: removing or cancelling work is not supported yet; change it in TaskSprint.")
+            continue
+        if raw.hours_per_day is None:
+            plan.problems.append(f"{label}: how many hours? Send it again with the hours.")
+            continue
+
+        prj, reason, _ = check_name("Project", raw.project, raw.project_text, projects)
+        if prj is None:
+            plan.problems.append(reason + ".")
+            continue
+        if prj.id not in active_project_ids:
+            plan.problems.append(f"{prj.name} is not active in TaskSprint, so nothing can be allocated to it.")
+            continue
+        if prj.id not in member_project_ids:
+            if (prj.id, prj.name) not in plan.not_member:
+                plan.not_member.append((prj.id, prj.name))
+            continue
+
+        task, problem, note = pick_task(raw.task, prj.name, tasks_by_project.get(prj.id, []))
+        if task is None:
+            plan.problems.append(problem)
+            continue
+        if (prj.id, task["id"]) in already:
+            line = f"{prj.name} / {task['name']}: already allocated today; change the hours in TaskSprint."
+            if line not in plan.skipped:
+                plan.skipped.append(line)
+            continue
+        seconds = int(round(raw.hours_per_day * 3600))
+        key = (prj.id, task["id"])
+        if key in merged:
+            merged[key].seconds += seconds
+        else:
+            merged[key] = AllocationRow(prj.id, prj.name, task["id"], task["name"], seconds, note)
+
+    plan.rows = sorted(merged.values(), key=lambda r: (r.project_name, r.task_name))
+    return plan
+
+
+def reply_html(name: str, today: date, plan: ChatPlan, pm_by_project: Dict[int, str] = None,
+               saved: bool = True) -> str:
+    """The agent's answer in the 1:1 chat. plan.rows are the rows saved (or, with saved=False, that would be)."""
+    e = html.escape
+    first = (name or "").split()[0] if name else ""
+    parts = [f"<p>Hi {e(first)},</p>"]
+    if plan.rows:
+        verb = "Saved" if saved else "Would save"
+        parts.append(f"<p>{verb} your plan for {today:%d-%m-%Y} in TaskSprint ({_hours(plan.total_seconds)}):</p><ul>"
+                     + "".join(f"<li>{e(r.project_name)} / {e(r.task_name)}: {_hours(r.seconds)}"
+                               + (f" ({e(r.note)})" if r.note else "") + "</li>" for r in plan.rows) + "</ul>")
+        if plan.total_seconds > LONG_DAY_SECONDS:
+            parts.append("<p>That is more than 8 h in total; correct it in TaskSprint if needed.</p>")
+    if plan.skipped:
+        parts.append("<p>Already in TaskSprint:</p><ul>" + "".join(f"<li>{e(s)}</li>" for s in plan.skipped) + "</ul>")
+    if plan.not_member:
+        pms = pm_by_project or {}
+        parts.append("<p>You are not on these projects in TaskSprint, so they were not saved:</p><ul>" + "".join(
+            f"<li>{e(n)} (PM: {e(pms.get(pid) or 'not set')})</li>" for pid, n in plan.not_member) +
+            "</ul><p>Ask the PM to add you to the project and its task, then send that part again.</p>")
+    if plan.problems:
+        parts.append("<p>Please fix and send again:</p><ul>" + "".join(f"<li>{e(p)}</li>" for p in plan.problems)
+                     + "</ul>")
+    return "".join(parts)
+
+
+def has_content(plan: ChatPlan) -> bool:
+    """False when the messages held no plan at all (greetings, questions): the agent stays quiet."""
+    return bool(plan.rows or plan.skipped or plan.not_member or plan.problems)

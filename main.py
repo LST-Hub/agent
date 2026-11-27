@@ -14,7 +14,9 @@ Usage:
     python main.py forecast-skills-import <file.csv> [--practice NAME]
     python main.py teams-allocations [--sample FILE] [--no-save]
     python main.py teams-plan-check [--dry-run] [--dm-to EMAIL]
-    python main.py teams-signin [--status]
+    python main.py teams-signin [--status] [--send-only]
+    python main.py chat-allocations [--dry-run]   (plans from 1:1 chats with the agent -> TaskSprint)
+    python main.py tasksprint-check [--user ID]   (log in to the TaskSprint API, read only)
     python main.py teams-signout
 
 """
@@ -191,9 +193,18 @@ def main():
                 elif "--status" in sys.argv:
                     print("Signed in as " + (login_status(store) or "nobody") + ".")
                 else:
-                    print(f"Teams reminders will be sent as {sign_in(store)}.")
+                    from services.teams_sender import SCOPES
+                    who = sign_in(store, scopes=SCOPES) if "--send-only" in sys.argv else sign_in(store)
+                    print(f"Teams reminders will be sent as {who}.")
             finally:
                 store.close()
+        elif command == "chat-allocations":
+            from agents.chat_allocation_agent import ChatAllocationAgent
+            logger.info("Running Chat Allocation Agent...")
+            ChatAllocationAgent(dry_run="--dry-run" in sys.argv).run()
+        elif command == "tasksprint-check":
+            from agents.chat_allocation_agent import tasksprint_check
+            tasksprint_check(int(sys.argv[sys.argv.index("--user") + 1]) if "--user" in sys.argv else None)
         elif command == "monday-summary":
             logger.info("Running Monday Summary Orchestrator...")
             run_monday_summary()
@@ -201,7 +212,7 @@ def main():
             print_tree(".")
         else:
             print(f"Unknown command: {command}")
-            print("Available commands: daily, weekly, weekly-report, weekly-billable-report, project-health, daily-ops, followups, followups-list, followups-close, forecast, forecast-skills-template, teams-allocations, teams-plan-check, teams-signin, teams-signout, monday-summary, tree")
+            print("Available commands: daily, weekly, weekly-report, weekly-billable-report, project-health, daily-ops, followups, followups-list, followups-close, forecast, forecast-skills-template, teams-allocations, teams-plan-check, teams-signin, teams-signout, chat-allocations, tasksprint-check, monday-summary, tree")
             sys.exit(1)
     except Exception as e:
         logger.error(f"Error executing {command} agent: {e}", exc_info=True)

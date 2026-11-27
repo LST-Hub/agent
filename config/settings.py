@@ -120,6 +120,15 @@ class AppSettings:
         default_factory=lambda: (os.getenv("TIMESHEET_REMINDER_CHANNEL") or "email").strip().lower())
     # User IDs who do not need to post a daily plan (e.g. PMs), on top of IGNORE_ID
     teams_plan_ignore_ids: str = field(default_factory=lambda: os.getenv("TEAMS_PLAN_IGNORE_IDS", ""))
+    # TaskSprint web API, used as the agent's own TaskSprint account (writes allocations)
+    tasksprint_url: str = field(default_factory=lambda: (os.getenv("TASKSPRINT_URL") or "").strip())
+    tasksprint_agent_email: str = field(default_factory=lambda: (os.getenv("TASKSPRINT_AGENT_EMAIL") or "").strip())
+    tasksprint_agent_password: str = field(default_factory=lambda: os.getenv("TASKSPRINT_AGENT_PASSWORD") or "")
+    # People whose 1:1 chat with the agent is read for day plans (emails, comma-separated; empty = nobody)
+    chat_allocation_users: str = field(default_factory=lambda: os.getenv("CHAT_ALLOCATION_USERS", ""))
+
+    def get_chat_allocation_users(self) -> List[str]:
+        return [e.strip().lower() for e in self.chat_allocation_users.split(",") if e.strip()]
 
     @staticmethod
     def _parse_id_list(value: str) -> List[int]:

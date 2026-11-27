@@ -205,10 +205,17 @@ class PlanReminderTests(unittest.TestCase):
         forced, sender3, _ = self.run_remind(["sachin ubale"], posted=[1], even_if_posted=True)
         self.assertEqual(len(sender3.sent), 1)
 
-    def test_nothing_sent_when_a_name_is_wrong_or_ignored(self):
-        for people, error in ((["poonam", "nobody"], "No active"), (["poonam", "arpita"], "ignore list")):
-            with self.assertRaisesRegex(ValueError, error):
-                self.run_remind(people)
+    def test_nothing_sent_when_a_name_is_wrong(self):
+        with self.assertRaisesRegex(ValueError, "No active"):
+            self.run_remind(["poonam", "nobody"])
+
+    def test_ignored_people_never_get_a_message(self):
+        for test_to in ("", "me@lst.com"):
+            out, sender, _ = self.run_remind(["arpita", "poonam"], test_to=test_to)
+            self.assertEqual(len(sender.sent), 1)
+            self.assertNotIn("Arpita", sender.sent[0][1])
+            self.assertEqual(out["results"][0], {"person": "Arpita Bhalerao",
+                                                 "status": "not sent: on the ignore list (IGNORE_ID)"})
 
     def test_limits(self):
         with self.assertRaisesRegex(ValueError, "At most"):

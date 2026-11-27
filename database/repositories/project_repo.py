@@ -58,9 +58,10 @@ class ProjectRepository(BaseRepository[Project]):
     def get_projects_for_matching(self) -> List[dict]:
         """All workspace projects (active and inactive) with their status name, for matching free-text names."""
         query = text("""
-            SELECT p.id, p.name, p.active,
+            SELECT p.id, p.name, p.active, p.pmId, pm.name AS pmName, pm.email AS pmEmail,
                    (SELECT s.name FROM Status s WHERE s.id = p.statusId AND s.workspaceId = 3 LIMIT 1) AS statusName
             FROM Project p
+            LEFT JOIN User pm ON pm.id = p.pmId AND pm.workspaceId = 3
             WHERE p.workspaceId = 3
         """)
         return [dict(row._mapping) for row in self.session.execute(query).fetchall()]

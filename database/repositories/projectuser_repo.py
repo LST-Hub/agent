@@ -33,3 +33,8 @@ class ProjectUserRepository:
         """)
         result = self.session.execute(query, {"project_id": project_id}).fetchall()
         return [row.userId for row in result]
+
+    def get_member_project_ids(self, user_id: int) -> List[int]:
+        """Projects the person is a member of (ProjectUser), workspace 3."""
+        query = text("SELECT DISTINCT projectId FROM ProjectUser WHERE workspaceId = 3 AND userId = :user_id")
+        return [row.projectId for row in self.session.execute(query, {"user_id": user_id}).fetchall()]

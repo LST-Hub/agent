@@ -15,7 +15,9 @@ Teams login) lives in its own PostgreSQL `agent-db`.
 | `forecast-skills-template`, `forecast-skills-import <csv> [--practice NAME]` | Skill sheet for the forecast |
 | `teams-allocations [--sample FILE] [--no-save]` | Read the Teams chat, extract plans with OpenAI, save to agent-db |
 | `teams-plan-check [--dry-run] [--dm-to EMAIL]` | 11:00 check: who has not posted today's plan; Teams reminders; summary email |
-| `teams-signin [--status]`, `teams-signout` | Account the Teams reminders are sent from (device code sign-in) |
+| `teams-signin [--status] [--send-only]`, `teams-signout` | Account the Teams reminders are sent from (device code sign-in; asks for Chat.Read too) |
+| `chat-allocations [--dry-run]` | Plans posted in 1:1 chats with the agent (`CHAT_ALLOCATION_USERS` only) -> TaskSprint allocations via its API; replies in the chat |
+| `tasksprint-check [--user ID]` | Log in to the TaskSprint API as the agent account (user 116) and list today's allocations; read only |
 | `daily [--dry-run] [--dm-to EMAIL]` | 10:00 missing/incomplete timesheet reminders; `TIMESHEET_REMINDER_CHANNEL` email, teams or both |
 | `weekly`, `weekly-report`, `weekly-billable-report`, `monday-summary` | Older weekly reminders and Excel reports (SharePoint upload) |
 
@@ -57,6 +59,8 @@ Teams login) lives in its own PostgreSQL `agent-db`.
 
 ## Rules (always)
 - **The TaskSprint DB is read-only.** Never write to it. For questions use `scripts/pm_query.py`; it only allows SELECT.
+  The only TaskSprint writes are allocations from `chat-allocations`, through the TaskSprint API as the agent account
+  (`TASKSPRINT_URL`, `TASKSPRINT_AGENT_EMAIL`, `TASKSPRINT_AGENT_PASSWORD`). TaskSprint emails the person on each allocation.
 - **Test mode first.** Never send email or Teams messages to anyone except the user without asking first.
   Use `--email-to <user>` for email and `--dm-to <someone else>` for Teams. Teams cannot message the signed-in account itself.
 - **Never print, commit or copy secrets.** Don't read `.env` whole. Never run `docker compose config` or
@@ -73,6 +77,7 @@ Teams login) lives in its own PostgreSQL `agent-db`.
 - `.env`:
   - `IGNORE_ID`: excluded from every report.
   - `TEAMS_PLAN_IGNORE_IDS`: not expected to post plans.
+  - `CHAT_ALLOCATION_USERS`: emails whose 1:1 chat with the agent is read for plans (empty = nobody).
   - `FOLLOWUP_IGNORE_PM_IDS`.
   - `PM_EMAIL`: summary report recipients.
   - Test recipients and email transport settings (`EMAIL_TRANSPORT` smtp|graph, `GRAPH_SENDER_MAILBOX`).

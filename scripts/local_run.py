@@ -27,7 +27,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHAREPOINT_COMMANDS = {"weekly-report", "weekly-billable-report", "monday-summary"}
-NO_EMAIL_COMMANDS = {"teams-allocations", "teams-signin", "teams-signout", "followups-list", "forecast-skills-template", "forecast-skills-import", "tree"}
+NO_EMAIL_COMMANDS = {"teams-allocations", "teams-signin", "teams-signout", "chat-allocations", "tasksprint-check", "followups-list", "forecast-skills-template", "forecast-skills-import", "tree"}
 MAILPIT = ("127.0.0.1", 1025)
 AGENT_DB = ("127.0.0.1", 5434)
 
@@ -90,7 +90,7 @@ def main():
         os.getenv("TIMESHEET_REMINDER_CHANNEL") or env_file.get("TIMESHEET_REMINDER_CHANNEL") or "email").strip().lower() != "email"
     if teams_daily and "--dm-to" not in args and not (env_file.get("TEAMS_DM_TEST_RECIPIENT") or "").strip():
         sys.exit("Refusing daily locally with Teams reminders without --dm-to EMAIL or --dry-run: it would send real Teams messages.")
-    needs_agent_db = teams_daily or command.startswith("followups") or command in ("teams-signin", "teams-signout") or (
+    needs_agent_db = teams_daily or command.startswith("followups") or command in ("teams-signin", "teams-signout", "chat-allocations") or (
         command == "teams-plan-check" and "--dry-run" not in args) or (command == "teams-allocations" and "--sample" not in args
                                                          and "--no-save" not in args)
     if _reachable(AGENT_DB):
