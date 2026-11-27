@@ -6,6 +6,8 @@ agent's TaskSprint account) and answers in the same chat with what was saved or 
 - Only people in CHAT_ALLOCATION_USERS are read (empty = nobody); IGNORE_ID people are skipped.
 - Only today's messages; each message is handled once (agent-db chat_allocation_messages).
 - TaskSprint is read from MySQL (read-only) and written only through its API.
+- A plan for a project the person is not a member of is not saved; the project's PM gets a Teams
+  message from the agent (once per person, project and day; TEAMS_DM_TEST_RECIPIENT test mode applies).
 - --dry-run: reads and matches, prints what would be saved and the reply; writes and sends nothing.
 
 Run it every few minutes during office hours from cron.
@@ -27,7 +29,9 @@ from database.repositories.task_repo import TaskRepository
 from database.repositories.user_repo import UserRepository
 from services.allocation_extraction import OpenAIAllocationExtractor
 from services.allocation_matching import NameMatcher, load_aliases
-from services.chat_allocations import AllocationRow, ChatPlan, build_plan, has_content, reply_html
+from services.chat_allocations import (
+    AllocationRow, ChatPlan, NotMember, build_plan, has_content, pm_message_html, reply_html,
+)
 from services.project_health_service import CLOSED_STATUSES
 from services.tasksprint_api import TaskSprintClient, TaskSprintError
 from utils.date_utils import is_holiday, is_weekend
@@ -36,6 +40,7 @@ logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 LOCK_KEY = 7310_0001   # Postgres advisory lock: one chat-allocations run at a time
+PM_LOG_KIND = "chat_alloc_pm"   # NotificationLog kind for messages to PMs
 
 
 def office_today() -> date:
@@ -44,6 +49,20 @@ def office_today() -> date:
     if override:
         return date.fromisoformat(override)
     return (datetime.now(timezone.utc) + timedelta(minutes=settings.teams_utc_offset_minutes)).date()
+
+
+def _id_to_email() -> Dict[int, str]:
+    """TaskSprint user id -> office email (active_emp.json first, then office_emails.json)."""
+    found: Dict[int, str] = {}
+    for name in ("active_emp.json", "office_emails.json"):
+        try:
+            with open(os.path.join(DATA_DIR, name), "r", encoding="utf-8") as f:
+                for uid, email in json.load(f).items():
+                    if email:
+                        found.setdefault(int(uid), email.strip())
+        except (OSError, ValueError):
+            pass
+    return found
 
 
 def _email_maps() -> Dict[str, int]:
@@ -194,7 +213,7 @@ class ChatAllocationAgent:
             session.close()
         names = {p["id"]: p["name"] for p in projects}
         active = {p["id"] for p in projects if p.get("active")}
-        pm_by_project = {p["id"]: p.get("pmName") for p in projects}
+        project_info = {p["id"]: p for p in projects}
         tasks_by_project: Dict[int, List[Dict]] = defaultdict(list)
         for t in tasks:
             tasks_by_project[t["projectId"]].append(t)
@@ -213,11 +232,13 @@ class ChatAllocationAgent:
             return result
 
         if self.dry_run:
-            html_text = reply_html(user.name, self.today, plan, pm_by_project, saved=False)
+            pm_notes = {n.project_id: f"the PM, {project_info[n.project_id].get('pmName') or 'not set'}, would be asked to add you"
+                        for n in plan.not_member}
+            html_text = reply_html(user.name, self.today, plan, pm_notes, saved=False)
             print(f"\n--- {user.name} ({email}): {len(new)} new message(s) ---")
             for r in plan.rows:
                 print(f"  would save  {r.project_name} / {r.task_name}: {r.seconds / 3600:g} h  {r.note}")
-            for line in plan.skipped + [f"not on project {n}" for _, n in plan.not_member] + plan.problems:
+            for line in plan.skipped + [f"not on project {n.project_name}" for n in plan.not_member] + plan.problems:
                 print(f"  not saved   {line}")
             print(f"  reply: {html_text}")
             result["reply"] = html_text
@@ -225,7 +246,9 @@ class ChatAllocationAgent:
 
         wanted = len(plan.rows)
         plan = write_plan(self._client or self._get_client(), self.today, user.id, plan)
-        html_text = reply_html(user.name, self.today, plan, pm_by_project)
+        pm_notes = {n.project_id: self._tell_pm(store, teams, user, n, project_info[n.project_id])
+                    for n in plan.not_member}
+        html_text = reply_html(user.name, self.today, plan, pm_notes)
         sent = teams.send(email, html_text)
         if not sent.ok:
             logger.error(f"Reply to {email} not sent: {sent.error}")
@@ -235,6 +258,35 @@ class ChatAllocationAgent:
         logger.info(f"{user.name}: {len(plan.rows)} allocation row(s) saved in TaskSprint ({status}).")
         result.update(reply=html_text, status=status)
         return result
+
+    def _tell_pm(self, store, teams, user, entry: NotMember, project: Dict) -> str:
+        """Ask the project's PM to add the person. Returns the line for the person's reply."""
+        from database.agent_store import NotificationLog
+        pm_id, pm_name = project.get("pmId"), project.get("pmName") or ""
+        if not pm_id or not pm_name:
+            return "the project has no PM in TaskSprint; ask the operations team to add you"
+        if pm_id == user.id:
+            return "you are its PM; add yourself to the project and the task in TaskSprint"
+        if pm_id in set(settings.get_ignore_id_list()):
+            return f"ask the PM, {pm_name}, to add you"
+        pm_email = _id_to_email().get(pm_id) or (project.get("pmEmail") or "").strip()
+        if not pm_email:
+            return f"ask the PM, {pm_name}, to add you (no email found for them)"
+        subject = f"{self.today} user {user.id} project {entry.project_id}"
+        done = store.query(NotificationLog).filter_by(kind=PM_LOG_KIND, subject=subject, success=True).first()
+        if done is not None:
+            return f"I have already asked the PM, {pm_name}, to add you today"
+        test_to = settings.teams_dm_test_recipient
+        to = test_to or pm_email
+        outcome = teams.send(to, pm_message_html(pm_name, user.name, self.today, entry,
+                                                 intended_for=pm_name if test_to else ""))
+        store.add(NotificationLog(kind=PM_LOG_KIND, recipients=to, subject=subject, success=outcome.ok))
+        store.commit()
+        if not outcome.ok:
+            logger.error(f"Message to PM {pm_name} ({to}) not sent: {outcome.error}")
+            return f"ask the PM, {pm_name}, to add you (my message to them could not be sent)"
+        logger.info(f"Asked PM {pm_name} ({to}) to add {user.name} to {entry.project_name}.")
+        return f"I have asked the PM, {pm_name}, to add you"
 
     def _get_client(self):
         if self._client is None:

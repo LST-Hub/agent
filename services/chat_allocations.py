@@ -5,7 +5,7 @@ Plain, testable rules (the AI only turns the message into rows; see allocation_e
 - Only the sender's own plan for today is saved. Other people, other dates, cancellations
   and rows without hours are answered with what to fix, never guessed.
 - The project must be active and the person a member of it (ProjectUser); otherwise the
-  PM has to add them first.
+  agent tells the project's PM (see pm_message_html) and the person sends it again once added.
 - TaskSprint needs a task for every allocation. The written task is matched to the
   project's active tasks the person is on (TaskUser). With no task written, or no match,
   a person on exactly one task of the project gets that task; otherwise they are asked.
@@ -36,11 +36,18 @@ class AllocationRow:
 
 
 @dataclass
+class NotMember:
+    project_id: int
+    project_name: str
+    posted: List[str] = field(default_factory=list)   # what the person wrote for it, e.g. "Development, 2 h"
+
+
+@dataclass
 class ChatPlan:
     rows: List[AllocationRow] = field(default_factory=list)       # to write to TaskSprint
     skipped: List[str] = field(default_factory=list)              # already in TaskSprint
     problems: List[str] = field(default_factory=list)             # the person has to fix these
-    not_member: List[Tuple[int, str]] = field(default_factory=list)  # (project id, name): PM must add the person
+    not_member: List["NotMember"] = field(default_factory=list)  # PM must add the person first
 
     @property
     def total_seconds(self) -> int:
@@ -80,7 +87,7 @@ def pick_task(written: str, project_name: str, tasks: Sequence[Dict]) -> Tuple[O
         return mine[0], "", note
     if not mine:
         return None, f"{project_name}: you are not on any task of this project in TaskSprint. Ask your PM to add you.", ""
-    asked = f"task '{written}' not found" if written else "which task?"
+    asked = f"task '{written}' not found." if written else "which task?"
     return None, f"{project_name}: {asked} Your tasks: {_task_list(mine)}.", ""
 
 
@@ -121,8 +128,11 @@ def build_plan(raw_rows: Iterable[RawAllocation], sender_names: Iterable[str], t
             plan.problems.append(f"{prj.name} is not active in TaskSprint, so nothing can be allocated to it.")
             continue
         if prj.id not in member_project_ids:
-            if (prj.id, prj.name) not in plan.not_member:
-                plan.not_member.append((prj.id, prj.name))
+            entry = next((n for n in plan.not_member if n.project_id == prj.id), None)
+            if entry is None:
+                entry = NotMember(prj.id, prj.name)
+                plan.not_member.append(entry)
+            entry.posted.append(", ".join(x for x in (raw.task, _hours(raw.hours_per_day * 3600)) if x))
             continue
 
         task, problem, note = pick_task(raw.task, prj.name, tasks_by_project.get(prj.id, []))
@@ -145,9 +155,10 @@ def build_plan(raw_rows: Iterable[RawAllocation], sender_names: Iterable[str], t
     return plan
 
 
-def reply_html(name: str, today: date, plan: ChatPlan, pm_by_project: Dict[int, str] = None,
+def reply_html(name: str, today: date, plan: ChatPlan, pm_notes: Dict[int, str] = None,
                saved: bool = True) -> str:
-    """The agent's answer in the 1:1 chat. plan.rows are the rows saved (or, with saved=False, that would be)."""
+    """The agent's answer in the 1:1 chat. plan.rows are the rows saved (or, with saved=False, that would be).
+    pm_notes: project id -> what happened with its PM, e.g. "I have asked the PM, Asha K, to add you"."""
     e = html.escape
     first = (name or "").split()[0] if name else ""
     parts = [f"<p>Hi {e(first)},</p>"]
@@ -161,10 +172,10 @@ def reply_html(name: str, today: date, plan: ChatPlan, pm_by_project: Dict[int, 
     if plan.skipped:
         parts.append("<p>Already in TaskSprint:</p><ul>" + "".join(f"<li>{e(s)}</li>" for s in plan.skipped) + "</ul>")
     if plan.not_member:
-        pms = pm_by_project or {}
+        notes = pm_notes or {}
         parts.append("<p>You are not on these projects in TaskSprint, so they were not saved:</p><ul>" + "".join(
-            f"<li>{e(n)} (PM: {e(pms.get(pid) or 'not set')})</li>" for pid, n in plan.not_member) +
-            "</ul><p>Ask the PM to add you to the project and its task, then send that part again.</p>")
+            f"<li>{e(n.project_name)}: {e(notes.get(n.project_id) or 'ask the PM to add you')}</li>"
+            for n in plan.not_member) + "</ul><p>Once you are added to the project and its task, send that part again.</p>")
     if plan.problems:
         parts.append("<p>Please fix and send again:</p><ul>" + "".join(f"<li>{e(p)}</li>" for p in plan.problems)
                      + "</ul>")
@@ -174,3 +185,15 @@ def reply_html(name: str, today: date, plan: ChatPlan, pm_by_project: Dict[int, 
 def has_content(plan: ChatPlan) -> bool:
     """False when the messages held no plan at all (greetings, questions): the agent stays quiet."""
     return bool(plan.rows or plan.skipped or plan.not_member or plan.problems)
+
+
+def pm_message_html(pm_name: str, person_name: str, day: date, entry: NotMember, intended_for: str = "") -> str:
+    """Teams message to a project's PM when someone posted a plan for a project they are not a member of."""
+    e = html.escape
+    test = f"<b>[TEST, meant for {e(intended_for)}]</b><br>" if intended_for else ""
+    first = (pm_name or "").split()[0] if pm_name else ""
+    posted = "; ".join(entry.posted)
+    return (f"{test}<i>Automated message:</i> Hi {e(first)}, {e(person_name)} posted a work plan for today "
+            f"({day:%a %d-%m-%Y}) on <b>{e(entry.project_name)}</b>" + (f" ({e(posted)})" if posted else "") +
+            f", but is not a member of this project in TaskSprint, so it was not saved. If {e(person_name)} should "
+            "work on it, please add them to the project and the task in TaskSprint; they will then post it again. Thanks!")

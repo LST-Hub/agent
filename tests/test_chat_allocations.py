@@ -4,7 +4,7 @@ from unittest import mock
 
 from services.allocation_extraction import RawAllocation
 from services.allocation_matching import NameMatcher
-from services.chat_allocations import build_plan, has_content, pick_task, reply_html
+from services.chat_allocations import build_plan, has_content, pick_task, pm_message_html, reply_html
 from services.tasksprint_api import TaskSprintClient, TaskSprintError
 from services.teams_chat_service import ChatMessage
 from services.teams_sender import SendResult
@@ -79,7 +79,8 @@ class BuildPlanTests(unittest.TestCase):
 
     def test_project_checks(self):
         p = plan_for([raw("Apollo"), raw("Old Project"), raw("Nonexistent Thing")])
-        self.assertEqual(p.not_member, [(4, "Apollo")])
+        self.assertEqual([(n.project_id, n.project_name, n.posted) for n in p.not_member],
+                         [(4, "Apollo", ["Development, 2 h"])])
         self.assertTrue(any("not active" in x for x in p.problems))
         self.assertTrue(any("not found" in x for x in p.problems))
 
@@ -93,11 +94,18 @@ class BuildPlanTests(unittest.TestCase):
 
     def test_reply_lists_saved_rows_and_escapes(self):
         p = plan_for([raw(hours=9), raw("Apollo")])
-        text = reply_html("Sachin Ubale", TODAY, p, {4: "Asha <PM>"})
+        text = reply_html("Sachin Ubale", TODAY, p, {4: "I have asked the PM, Asha <PM>, to add you"})
         self.assertIn("Saved your plan for 27-11-2026", text)
         self.assertIn("Protecta / Development: 9 h", text)
         self.assertIn("more than 8 h", text)
-        self.assertIn("Asha &lt;PM&gt;", text)
+        self.assertIn("Apollo: I have asked the PM, Asha &lt;PM&gt;, to add you", text)
+
+    def test_pm_message(self):
+        p = plan_for([raw("Apollo", "Design", 3)])
+        text = pm_message_html("Asha K", "Sachin Ubale", TODAY, p.not_member[0], intended_for="Asha K")
+        self.assertIn("[TEST, meant for Asha K]", text)
+        self.assertIn("Hi Asha, Sachin Ubale posted a work plan for today (Fri 27-11-2026) on <b>Apollo</b> "
+                      "(Design, 3 h)", text)
 
 
 class FakeResponse:
@@ -198,11 +206,17 @@ class FakeClient:
 
 
 class FakeQuery:
-    def __init__(self, store):
-        self.store = store
+    def __init__(self, store, kw=None):
+        self.store, self.kw = store, kw or {}
 
     def filter(self, *_):
         return self
+
+    def filter_by(self, **kw):
+        return FakeQuery(self.store, kw)
+
+    def first(self):
+        return next((r for r in self.store.logs if all(getattr(r, k) == v for k, v in self.kw.items())), None)
 
     def all(self):
         return [(r.message_id,) for r in self.store.rows]
@@ -210,13 +224,13 @@ class FakeQuery:
 
 class FakeStore:
     def __init__(self):
-        self.rows = []
+        self.rows, self.logs = [], []
 
     def query(self, *_):
         return FakeQuery(self)
 
     def add(self, row):
-        self.rows.append(row)
+        (self.logs if type(row).__name__ == "NotificationLog" else self.rows).append(row)
 
     def commit(self):
         pass
@@ -227,6 +241,8 @@ class User:
 
 
 class AgentTests(unittest.TestCase):
+    test_to = ""
+
     def run_agent(self, messages, rows, client=None, store=None, dry_run=False):
         from agents import chat_allocation_agent as ca
         teams, client, store = FakeTeams(messages), client or FakeClient(), store or FakeStore()
@@ -235,7 +251,8 @@ class AgentTests(unittest.TestCase):
         session = mock.MagicMock()
         repos = {
             "ProjectRepository": [{"id": i, "name": n, "active": i in ACTIVE, "statusName": "In Progress",
-                                   "pmName": "Asha"} for i, n in PROJECTS.items()],
+                                   "pmId": 70 + i, "pmName": "Asha K", "pmEmail": f"pm{i}@x.com"}
+                                  for i, n in PROJECTS.items()],
             "ProjectUserRepository": sorted(MEMBER),
             "TaskRepository": [t for ts in TASKS.values() for t in ts],
             "ResourceAllocationRepository": [],
@@ -247,6 +264,8 @@ class AgentTests(unittest.TestCase):
                 mock.patch.object(ca.ResourceAllocationRepository, "get_user_day_allocations", lambda s, u, d: []), \
                 mock.patch.object(ca, "load_aliases", lambda: ({}, {})), \
                 mock.patch.object(ca.settings, "chat_allocation_users", "sachin@x.com"), \
+                mock.patch.object(ca.settings, "teams_dm_test_recipient", self.test_to), \
+                mock.patch.object(ca, "_id_to_email", lambda: {}), \
                 mock.patch.object(ca.ChatAllocationAgent, "_load_people", lambda self, e: [("sachin@x.com", User())]):
             result = agent.run()
         return result, teams, client, store
@@ -291,6 +310,25 @@ class AgentTests(unittest.TestCase):
         _, teams, _, _ = self.run_agent([self.msg("m1")], [], store=store)
         self.assertEqual(teams.sent, [])
         self.assertEqual(store.rows[0].status, "no_plan")
+
+    def test_pm_is_told_once_per_day(self):
+        store = FakeStore()
+        _, teams, client, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")], store=store)
+        self.assertEqual(client.created, [])
+        self.assertEqual([t for t, _ in teams.sent], ["pm4@x.com", "sachin@x.com"])
+        self.assertIn("Sachin Ubale posted a work plan", teams.sent[0][1])
+        self.assertIn("Apollo: I have asked the PM, Asha K, to add you", teams.sent[1][1])
+        self.assertEqual(store.rows[0].status, "needs_fix")
+        # A new message for the same project the same day: the PM is not asked again
+        _, teams2, _, _ = self.run_agent([self.msg("m2", hour=11)], [raw("Apollo", "Design", 2, msg="m2")], store=store)
+        self.assertEqual([t for t, _ in teams2.sent], ["sachin@x.com"])
+        self.assertIn("already asked the PM", teams2.sent[0][1])
+
+    def test_pm_message_goes_to_test_recipient(self):
+        self.test_to = "tester@x.com"
+        _, teams, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
+        self.assertEqual(teams.sent[0][0], "tester@x.com")
+        self.assertIn("[TEST, meant for Asha K]", teams.sent[0][1])
 
 
 if __name__ == "__main__":
