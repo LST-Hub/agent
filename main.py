@@ -15,7 +15,7 @@ Usage:
     python main.py teams-allocations [--sample FILE] [--no-save]
     python main.py teams-plan-check [--dry-run] [--dm-to EMAIL]
     python main.py teams-signin [--status] [--send-only]
-    python main.py chat-allocations [--dry-run]   (plans from 1:1 chats with the agent -> TaskSprint)
+    python main.py chat-allocations [--dry-run | --watch]   (plans from 1:1 chats with the agent -> TaskSprint)
     python main.py tasksprint-check [--user ID]   (log in to the TaskSprint API, read only)
     python main.py teams-signout
 
@@ -199,9 +199,12 @@ def main():
             finally:
                 store.close()
         elif command == "chat-allocations":
-            from agents.chat_allocation_agent import ChatAllocationAgent
-            logger.info("Running Chat Allocation Agent...")
-            ChatAllocationAgent(dry_run="--dry-run" in sys.argv).run()
+            from agents.chat_allocation_agent import ChatAllocationAgent, watch
+            if "--watch" in sys.argv:
+                watch()
+            else:
+                logger.info("Running Chat Allocation Agent...")
+                ChatAllocationAgent(dry_run="--dry-run" in sys.argv).run()
         elif command == "tasksprint-check":
             from agents.chat_allocation_agent import tasksprint_check
             tasksprint_check(int(sys.argv[sys.argv.index("--user") + 1]) if "--user" in sys.argv else None)

@@ -5,21 +5,22 @@ the TaskSprint API, as the agent's TaskSprint account).
 
 Conversation: the person posts a plan -> the agent answers "I read: Project / Task / hours, reply
 yes to save" (and what to fix) -> "yes" saves the waiting plan, "no" drops it, a new plan replaces it.
+Every other message gets an answer too (help, greetings, "add this task to me").
 
 - Only people in CHAT_ALLOCATION_USERS are read (empty = nobody); IGNORE_ID people are skipped.
 - Only today's messages; each message is handled once (agent-db chat_allocation_messages).
 - TaskSprint is read from MySQL (read-only) and written only through its API.
-- A plan for a project the person is not a member of is not saved; the project's PM gets a Teams
-  message from the agent (once per person, project and day; TEAMS_DM_TEST_RECIPIENT test mode applies).
-  PMs on IGNORE_ID get it only when they are in CHAT_PM_IDS.
+- When the person is not on the project or the task, or the task does not exist, the project's PM
+  gets a Teams message from the agent (once per person, request and day; TEAMS_DM_TEST_RECIPIENT test
+  mode applies). PMs on IGNORE_ID get it only when they are in CHAT_PM_IDS.
 - --dry-run: reads and matches, prints the reply; saves, writes and sends nothing.
-
-Run it every few minutes during office hours from cron.
+- --watch: keeps running and checks the chats every CHAT_POLL_SECONDS (default 20) in office hours.
 """
 
 import json
 import logging
 import os
+import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -34,8 +35,9 @@ from database.repositories.user_repo import UserRepository
 from services.allocation_extraction import OpenAIAllocationExtractor
 from services.allocation_matching import NameMatcher, load_aliases
 from services.chat_allocations import (
-    CANCELLED_HTML, NOTHING_WAITING_HTML, AllocationRow, ChatPlan, NotMember, build_plan, classify_reply,
-    greeting_html, has_content, pm_message_html, reply_html, rows_from_json, rows_to_json,
+    ADD_TO_PROJECT, CANCELLED_HTML, GREETING_HTML, HELP_HTML, NOTHING_WAITING_HTML, THANKS_HTML, AllocationRow,
+    ChatPlan, PmRequest, build_plan, classify_reply, greeting_html, has_content, pick_task, pm_message_html,
+    reply_html, requested_html, rows_from_json, rows_to_json,
 )
 from services.project_health_service import CLOSED_STATUSES
 from services.tasksprint_api import TaskSprintClient, TaskSprintError
@@ -44,43 +46,51 @@ from utils.date_utils import is_holiday, is_weekend
 logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-LOCK_KEY = 7310_0001   # Postgres advisory lock: one chat-allocations run at a time
-PM_LOG_KIND = "chat_alloc_pm"   # NotificationLog kind for messages to PMs
+LOCK_KEY = 7310_0001          # Postgres advisory lock: one chat-allocations run at a time
+OFFICE_START = (8, 30)        # --watch checks chats between these office times (Mon-Fri)
+OFFICE_END = (20, 30)
+LOGIN_REFRESH_SECONDS = 30 * 60   # --watch renews the Teams and TaskSprint logins this often
+
+
+def office_now() -> datetime:
+    """Office time now (the VPS clock is UTC)."""
+    return (datetime.now(timezone.utc) + timedelta(minutes=settings.teams_utc_offset_minutes)).replace(tzinfo=None)
 
 
 def office_today() -> date:
-    """Today in office time (the VPS clock is UTC). AGENT_TODAY=YYYY-MM-DD overrides it for tests."""
+    """Today in office time. AGENT_TODAY=YYYY-MM-DD overrides it for tests."""
     override = (os.getenv("AGENT_TODAY") or "").strip()
     if override:
         return date.fromisoformat(override)
-    return (datetime.now(timezone.utc) + timedelta(minutes=settings.teams_utc_offset_minutes)).date()
+    return office_now().date()
 
 
-def _id_to_email() -> Dict[int, str]:
-    """TaskSprint user id -> office email (active_emp.json first, then office_emails.json)."""
-    found: Dict[int, str] = {}
+def _load_email_files() -> List[Dict]:
+    found = []
     for name in ("active_emp.json", "office_emails.json"):
         try:
             with open(os.path.join(DATA_DIR, name), "r", encoding="utf-8") as f:
-                for uid, email in json.load(f).items():
-                    if email:
-                        found.setdefault(int(uid), email.strip())
+                found.append({int(uid): email.strip() for uid, email in json.load(f).items() if email})
         except (OSError, ValueError):
             pass
     return found
 
 
+def _id_to_email() -> Dict[int, str]:
+    """TaskSprint user id -> office email (active_emp.json first, then office_emails.json)."""
+    found: Dict[int, str] = {}
+    for mapping in _load_email_files():
+        for uid, email in mapping.items():
+            found.setdefault(uid, email)
+    return found
+
+
 def _email_maps() -> Dict[str, int]:
-    """email (lower case) -> TaskSprint user id, from data/active_emp.json and data/office_emails.json."""
+    """email (lower case) -> TaskSprint user id."""
     found: Dict[str, int] = {}
-    for name in ("active_emp.json", "office_emails.json"):
-        try:
-            with open(os.path.join(DATA_DIR, name), "r", encoding="utf-8") as f:
-                for uid, email in json.load(f).items():
-                    if email:
-                        found.setdefault(email.strip().lower(), int(uid))
-        except (OSError, ValueError):
-            pass
+    for mapping in _load_email_files():
+        for uid, email in mapping.items():
+            found.setdefault(email.lower(), uid)
     return found
 
 
@@ -110,10 +120,11 @@ def write_plan(client, today: date, user_id: int, plan: ChatPlan) -> ChatPlan:
 
 class ChatAllocationAgent:
     def __init__(self, dry_run: bool = False, today: Optional[date] = None,
-                 teams=None, client=None, extractor=None, store=None):
+                 teams=None, client=None, extractor=None, store=None, intents=None):
         self.dry_run = dry_run
         self.today = today or office_today()
         self._teams, self._client, self._extractor, self._store = teams, client, extractor, store
+        self._intents = intents
 
     # ------------------------------------------------------------ setup
 
@@ -124,13 +135,14 @@ class ChatAllocationAgent:
         return get_agent_session()
 
     @staticmethod
-    def _lock(store) -> bool:
-        """Postgres advisory lock so two cron runs never handle the same message twice."""
+    def _lock(store, take: bool = True) -> bool:
+        """Postgres advisory lock so two runs never handle the same message twice (take=False releases it)."""
         try:
             if store.bind.dialect.name != "postgresql":
                 return True
             from sqlalchemy import text
-            return bool(store.execute(text("SELECT pg_try_advisory_lock(:k)"), {"k": LOCK_KEY}).scalar())
+            sql = "SELECT pg_try_advisory_lock(:k)" if take else "SELECT pg_advisory_unlock(:k)"
+            return bool(store.execute(text(sql), {"k": LOCK_KEY}).scalar())
         except AttributeError:
             return True   # test store
 
@@ -172,14 +184,26 @@ class ChatAllocationAgent:
             return []
 
         store = self._open_store()
+        locked = False
         try:
-            if not self.dry_run and not self._lock(store):
-                logger.info("Another chat-allocations run is still busy; this one stops.")
-                return []
+            if not self.dry_run:
+                locked = self._lock(store)
+                if not locked:
+                    logger.info("Another chat-allocations run is still busy; this one stops.")
+                    return []
             teams = self._teams or self._make_teams(store)
-            results = [self._handle_person(store, teams, email, user) for email, user in people]
+            results = []
+            for email, user in people:
+                try:
+                    results.append(self._handle_person(store, teams, email, user))
+                except Exception:    # one person's problem must not stop the others
+                    logger.exception(f"chat-allocations failed for {email}")
+                    if hasattr(store, "rollback"):
+                        store.rollback()
             return [r for r in results if r]
         finally:
+            if locked:
+                self._lock(store, take=False)
             if self._store is None:
                 store.close()
 
@@ -204,7 +228,6 @@ class ChatAllocationAgent:
         handled = self._handled_ids(store, [m.id for m in messages])
         new = [m for m in messages if m.id not in handled]
         if not new:
-            logger.info(f"{user.name}: no new messages today.")
             return None
 
         ctx = self._context(user)
@@ -225,7 +248,6 @@ class ChatAllocationAgent:
         result = {"user": user.name, "messages": len(new), "reply": ""}
         body = "".join(p for p in parts if p)
         if not body:
-            logger.info(f"{user.name}: {len(new)} new message(s) without a plan; no reply.")
             return result
         html_text = greeting_html(user.name) + body
         result["reply"] = html_text
@@ -251,10 +273,12 @@ class ChatAllocationAgent:
         tasks_by_project: Dict[int, List[Dict]] = defaultdict(list)
         for t in tasks:
             tasks_by_project[t["projectId"]].append(t)
-        return {"names": {p["id"]: p["name"] for p in projects},
-                "active": {p["id"] for p in projects if p.get("active")},
-                "projects": {p["id"]: p for p in projects},
-                "member_ids": member_ids, "tasks": tasks_by_project, "existing": existing}
+        names = {p["id"]: p["name"] for p in projects}
+        active = {p["id"] for p in projects if p.get("active")}
+        _, project_aliases = load_aliases()
+        return {"names": names, "active": active, "projects": {p["id"]: p for p in projects},
+                "member_ids": member_ids, "tasks": tasks_by_project, "existing": existing,
+                "matcher": NameMatcher(names, project_aliases, preferred=active)}
 
     def _existing_now(self, user_id: int) -> List[Dict]:
         session = next(get_db_session())
@@ -269,24 +293,26 @@ class ChatAllocationAgent:
                 .filter_by(user_id=user_id, work_date=self.today, status="pending")
                 .order_by(ChatPendingPlan.id.desc()).first())
 
+    def _ask_pms(self, store, teams, user, requests: List[PmRequest], ctx) -> Dict[str, str]:
+        """Send (or, in a dry run, describe) the PM requests. Returns request key -> line for the person."""
+        if self.dry_run:
+            return {r.key: f"(dry run) the PM, {ctx['projects'][r.project_id].get('pmName') or 'not set'}, would be "
+                           f"asked to {r.describe().replace(' you', ' the person', 1)}." for r in requests}
+        return {r.key: self._tell_pm(store, teams, user, r, ctx["projects"][r.project_id]) for r in requests}
+
     def _read_plan(self, store, teams, user, messages, ctx) -> str:
-        """Plan messages -> waiting plan + the reply part asking for yes (and what to fix)."""
+        """Plan messages -> waiting plan + the reply part asking for yes (and what to fix).
+        Messages without a plan are answered as requests, questions or small talk."""
         from database.agent_store import ChatPendingPlan, _utcnow
         extractor = self._extractor or OpenAIAllocationExtractor(settings.ai.api_key, settings.ai.extraction_model)
         raw = extractor.extract(messages, [user.name], [ctx["names"][i] for i in ctx["active"]])
-        _, project_aliases = load_aliases()
-        plan = build_plan(raw, {user.name, *(m.sender for m in messages)}, self.today,
-                          NameMatcher(ctx["names"], project_aliases, preferred=ctx["active"]), ctx["active"],
+        plan = build_plan(raw, {user.name, *(m.sender for m in messages)}, self.today, ctx["matcher"], ctx["active"],
                           ctx["member_ids"], ctx["tasks"], ctx["existing"])
         if not has_content(plan):
-            self._mark(store, messages, user.id, "no_plan", "")
-            return ""
+            return "".join(self._other_message(store, teams, user, m, ctx) for m in messages)
+        pm_notes = self._ask_pms(store, teams, user, plan.requests, ctx)
         if self.dry_run:
-            pm_notes = {n.project_id: f"the PM, {ctx['projects'][n.project_id].get('pmName') or 'not set'}, "
-                                      "would be asked to add you" for n in plan.not_member}
             return reply_html(self.today, plan, pm_notes, state="dry")
-        pm_notes = {n.project_id: self._tell_pm(store, teams, user, n, ctx["projects"][n.project_id])
-                    for n in plan.not_member}
         if plan.rows:
             earlier = self._pending(store, user.id)
             if earlier is not None:          # a new plan replaces the one still waiting
@@ -295,8 +321,44 @@ class ChatAllocationAgent:
                                       status="pending"))
         part = reply_html(self.today, plan, pm_notes, state="pending")
         self._mark(store, messages, user.id, "pending" if plan.rows else "needs_fix", part)
-        logger.info(f"{user.name}: plan read ({len(plan.rows)} row(s) waiting for yes).")
+        logger.info(f"{user.name}: plan read ({len(plan.rows)} row(s) waiting for yes, {len(plan.requests)} PM request(s)).")
         return part
+
+    def _other_message(self, store, teams, user, message, ctx) -> str:
+        """A message that is not a plan: answer requests ("add this task to me"), questions and small talk."""
+        from services.chat_intent import OpenAIIntentClassifier
+        classifier = self._intents or OpenAIIntentClassifier(settings.ai.api_key, settings.ai.extraction_model)
+        intent = classifier.classify(message.text)
+        if intent.intent == "request":
+            part = self._request(store, teams, user, intent, ctx)
+        else:
+            part = {"greeting": GREETING_HTML, "thanks": THANKS_HTML}.get(intent.intent, HELP_HTML)
+        self._mark(store, [message], user.id, intent.intent, part)
+        return part
+
+    def _request(self, store, teams, user, intent, ctx) -> str:
+        """'add me to X - Y': ask the PM. Without a project: say what the PMs were already asked today."""
+        if not intent.project:
+            return requested_html(self._asked_today(store, user.id))
+        prj = ctx["matcher"].match(intent.project)
+        if prj.id is None or prj.id not in ctx["active"]:
+            return f"<p>I could not find an active project '{intent.project}' in TaskSprint. Which project do you mean?</p>"
+        if prj.id not in ctx["member_ids"]:
+            request = PmRequest(ADD_TO_PROJECT, prj.id, prj.name, posted=[intent.task] if intent.task else [])
+        else:
+            task, problem, _, request = pick_task(intent.task or "", prj.id, prj.name, ctx["tasks"].get(prj.id, []))
+            if request is None:
+                if task is not None:
+                    return (f"<p>You are already on task {task['name']} in {prj.name}. Post your plan like: "
+                            f"{prj.name} - {task['name']} - 3 h</p>")
+                return f"<p>{problem} Which task should the PM add you to?</p>"
+        note = self._ask_pms(store, teams, user, [request], ctx)[request.key]
+        return f"<p>{request.problem()} {note}</p>"
+
+    def _asked_today(self, store, user_id: int) -> List[tuple]:
+        from database.agent_store import ChatPmRequest
+        rows = store.query(ChatPmRequest).filter_by(user_id=user_id, work_date=self.today, success=True).all()
+        return [(r.pm_name, r.what) for r in rows]
 
     def _answer(self, store, user, message, kind: str) -> str:
         """A "yes" saves the waiting plan in TaskSprint; a "no" drops it."""
@@ -327,34 +389,36 @@ class ChatAllocationAgent:
         logger.info(f"{user.name}: confirmed, {len(plan.rows)} allocation row(s) saved in TaskSprint ({status}).")
         return part
 
-    def _tell_pm(self, store, teams, user, entry: NotMember, project: Dict) -> str:
-        """Ask the project's PM to add the person. Returns the line for the person's reply."""
-        from database.agent_store import NotificationLog
+    def _tell_pm(self, store, teams, user, request: PmRequest, project: Dict) -> str:
+        """Ask the project's PM to fix TaskSprint for the person. Returns the line for the person's reply."""
+        from database.agent_store import ChatPmRequest
         pm_id, pm_name = project.get("pmId"), project.get("pmName") or ""
         if not pm_id or not pm_name:
-            return "the project has no PM in TaskSprint; ask the operations team to add you"
+            return "The project has no PM in TaskSprint; ask the operations team."
         if pm_id == user.id:
-            return "you are its PM; add yourself to the project and the task in TaskSprint"
+            return "You are its PM; change it in TaskSprint yourself."
         if pm_id in set(settings.get_ignore_id_list()) and pm_id not in set(settings.get_chat_pm_ids()):
-            return f"ask the PM, {pm_name}, to add you"     # IGNORE_ID people get no Teams messages
+            return f"Ask the PM, {pm_name}."     # IGNORE_ID people get no Teams messages
         pm_email = _id_to_email().get(pm_id) or (project.get("pmEmail") or "").strip()
         if not pm_email:
-            return f"ask the PM, {pm_name}, to add you (no email found for them)"
-        subject = f"{self.today} user {user.id} project {entry.project_id}"
-        done = store.query(NotificationLog).filter_by(kind=PM_LOG_KIND, subject=subject, success=True).first()
+            return f"Ask the PM, {pm_name} (no email found for them)."
+        done = store.query(ChatPmRequest).filter_by(user_id=user.id, work_date=self.today,
+                                                   request_key=request.key, success=True).first()
         if done is not None:
-            return f"I have already asked the PM, {pm_name}, to add you today"
+            return f"I have already asked the PM, {pm_name}, today."
         test_to = settings.teams_dm_test_recipient
         to = test_to or pm_email
-        outcome = teams.send(to, pm_message_html(pm_name, user.name, self.today, entry,
+        outcome = teams.send(to, pm_message_html(pm_name, user.name, self.today, request,
                                                  intended_for=pm_name if test_to else ""))
-        store.add(NotificationLog(kind=PM_LOG_KIND, recipients=to, subject=subject, success=outcome.ok))
+        store.add(ChatPmRequest(user_id=user.id, work_date=self.today, request_key=request.key,
+                                project_id=request.project_id, what=request.describe(), pm_id=pm_id,
+                                pm_name=pm_name, recipients=to, success=outcome.ok))
         store.commit()
         if not outcome.ok:
             logger.error(f"Message to PM {pm_name} ({to}) not sent: {outcome.error}")
-            return f"ask the PM, {pm_name}, to add you (my message to them could not be sent)"
-        logger.info(f"Asked PM {pm_name} ({to}) to add {user.name} to {entry.project_name}.")
-        return f"I have asked the PM, {pm_name}, to add you"
+            return f"Ask the PM, {pm_name} (my message to them could not be sent)."
+        logger.info(f"Asked PM {pm_name} ({to}) to {request.describe()} ({user.name}).")
+        return f"I have asked the PM, {pm_name}, to {request.describe()}."
 
     def _get_client(self):
         if self._client is None:
@@ -370,6 +434,43 @@ class ChatAllocationAgent:
             store.add(ChatAllocationMessage(message_id=m.id, user_id=user_id, work_date=self.today,
                                             status=status, reply=reply))
         store.commit()
+
+
+def in_office_hours(now: datetime) -> bool:
+    return now.weekday() < 5 and OFFICE_START <= (now.hour, now.minute) < OFFICE_END
+
+
+def watch(interval: int = None, sleep=time.sleep, now=office_now, rounds: Optional[int] = None) -> None:
+    """Keep checking the chats every `interval` seconds in office hours (the chat service in docker).
+    The Teams and TaskSprint logins are renewed every LOGIN_REFRESH_SECONDS."""
+    interval = interval or int(os.getenv("CHAT_POLL_SECONDS") or 20)
+    logger.info(f"Watching the agent's chats every {interval} s, {OFFICE_START[0]:02d}:{OFFICE_START[1]:02d}-"
+                f"{OFFICE_END[0]:02d}:{OFFICE_END[1]:02d} office time, Mon-Fri.")
+    teams = client = None
+    logins_at = 0.0
+    done = 0
+    while rounds is None or done < rounds:
+        done += 1
+        if not in_office_hours(now()):
+            teams = client = None
+            sleep(300)
+            continue
+        try:
+            if teams is None or time.monotonic() - logins_at > LOGIN_REFRESH_SECONDS:
+                from database.agent_store import get_agent_session
+                login_store = get_agent_session()
+                try:
+                    teams = ChatAllocationAgent._make_teams(login_store)
+                finally:
+                    login_store.close()
+                client, logins_at = None, time.monotonic()
+            agent = ChatAllocationAgent(teams=teams, client=client)
+            agent.run()
+            client = agent._client          # keep the TaskSprint login between rounds
+        except Exception:
+            logger.exception("chat-allocations round failed; trying again next round")
+            teams = client = None
+        sleep(interval)
 
 
 def tasksprint_check(user_id: Optional[int] = None) -> None:

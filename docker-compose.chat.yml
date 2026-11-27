@@ -1,0 +1,21 @@
+# Chat service: reads day plans posted in 1:1 chats with the agent account every 20 seconds
+# (chat-allocations --watch) during office hours, Mon-Fri. VPS only. Replaces the chat-allocations cron line.
+#
+# Start / update:  docker compose -f docker-compose.yml -f docker-compose.chat.yml up -d --build chat
+# Logs:            docker compose -f docker-compose.yml -f docker-compose.chat.yml logs --tail 100 chat
+# Stop:            docker compose -f docker-compose.yml -f docker-compose.chat.yml stop chat
+#
+# Settings in .env: CHAT_ALLOCATION_USERS, CHAT_PM_IDS, CHAT_POLL_SECONDS (default 20), TASKSPRINT_*;
+# .env is read when the container starts: after a change run  ... up -d --force-recreate chat
+
+services:
+  chat:
+    image: agent:latest
+    build: .
+    command: ["chat-allocations", "--watch"]
+    env_file:
+      - .env
+    depends_on:
+      agent-db:
+        condition: service_healthy
+    restart: unless-stopped

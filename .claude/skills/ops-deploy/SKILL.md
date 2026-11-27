@@ -62,12 +62,13 @@ Check it with `docker logs --tail 50 <name>`, then remove it with `docker rm -f 
 5 6 * * 1-5    cd /opt/agent && /usr/bin/docker compose run --rm agent project-health   >> /var/log/agent.log 2>&1
 30 6 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent followups        >> /var/log/agent.log 2>&1
 35 6 * * 1-5   cd /opt/agent && /usr/bin/docker compose run --rm agent forecast         >> /var/log/agent.log 2>&1
-# Every 2 minutes, IST 08:30-20:30 Mon-Fri: plans posted in 1:1 chats with the agent -> TaskSprint, replies, PM messages
-*/2 3-14 * * 1-5 cd /opt/agent && /usr/bin/docker compose run --rm agent chat-allocations >> /var/log/agent-chat.log 2>&1
 # IST 02:00 agent-db backup
 30 20 * * *    cd /opt/agent && /usr/bin/docker compose exec -T agent-db pg_dump -U ops_agent ops_agent | gzip > /opt/agent/backups/agent-db-$(date +\%F).sql.gz
 ```
 - `teams-plan-check` also reads and saves the Teams plans, so it runs before daily-ops and forecast.
+- Chat plans (1:1 chats with the agent) are not in cron: the `chat` service checks every 20 s in office hours.
+  Start / update: `docker compose -f docker-compose.yml -f docker-compose.chat.yml up -d --build chat`
+  (after a `.env` change add `--force-recreate`). Logs: `... logs --tail 100 chat`.
 - Both reminder jobs send Teams messages from the account signed in with `teams-signin` (the agent account).
   `daily` uses Teams when `TIMESHEET_REMINDER_CHANNEL=teams` (email only when Teams fails) or `both`.
 - The commands skip weekends and company holidays themselves where that matters.

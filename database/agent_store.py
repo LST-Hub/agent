@@ -129,6 +129,23 @@ class ChatPendingPlan(Base):
     decided_at = Column(DateTime)
 
 
+class ChatPmRequest(Base):
+    """A Teams message chat-allocations sent to a PM: add someone to a project or task (once per day each)."""
+    __tablename__ = "chat_pm_requests"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    work_date = Column(Date, nullable=False, index=True)
+    request_key = Column(String(255), nullable=False)    # kind:project id:task
+    project_id = Column(Integer, nullable=False)
+    what = Column(Text, nullable=False)                  # "add you to project X", shown to the person
+    pm_id = Column(Integer)
+    pm_name = Column(String(255))
+    recipients = Column(Text)
+    success = Column(Boolean, nullable=False)
+    sent_at = Column(DateTime, nullable=False, default=_utcnow)
+
+
 _session_factory = None
 
 
