@@ -187,12 +187,14 @@ class OpenAIAllocationExtractor:
         return json.loads(choice.message.content)
 
     def extract(self, messages: Sequence[ChatMessage], people: Sequence[str],
-                projects: Sequence[str]) -> List[RawAllocation]:
-        """All allocations in `messages` (oldest first), processed in batches with earlier messages as context."""
+                projects: Sequence[str], context: Sequence[ChatMessage] = ()) -> List[RawAllocation]:
+        """All allocations in `messages` (oldest first), processed in batches with earlier messages as context.
+        context: messages before the first one (e.g. the agent's question that "2 h" answers); never extracted."""
         rows: List[RawAllocation] = []
+        earlier = list(context)[-CONTEXT_MESSAGES:]
         for start in range(0, len(messages), TARGET_BATCH_SIZE):
             targets = messages[start:start + TARGET_BATCH_SIZE]
-            context = messages[max(0, start - CONTEXT_MESSAGES):start]
+            context = (earlier + list(messages[:start]))[-CONTEXT_MESSAGES:]
             ref_to_id = {f"m{i}": m.id for i, m in enumerate(targets, start=1)}
             data = self._call(build_user_prompt(targets, context, people, projects))
             batch = parse_extraction(data, ref_to_id)

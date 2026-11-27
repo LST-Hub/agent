@@ -236,8 +236,9 @@ class FakeExtractor:
     def __init__(self, rows):
         self.rows, self.seen = rows, []
 
-    def extract(self, messages, people, projects):
+    def extract(self, messages, people, projects, context=()):
         self.seen.append([m.id for m in messages])
+        self.context = [m.text for m in context]
         return [r for r in self.rows if r.message_id in {m.id for m in messages}]
 
 
@@ -245,8 +246,8 @@ class FakeIntents:
     def __init__(self, by_text=None):
         self.by_text = by_text or {}
 
-    def classify(self, text):
-        return self.by_text.get(text, Intent("other"))
+    def classify(self, text, context=()):
+        return self.by_text.get(text, Intent("plan"))
 
 
 class FakeClient:
@@ -312,12 +313,14 @@ class User:
 
 class AgentTests(unittest.TestCase):
     test_to = ""
+    ignore_ids, pm_ids = "", ""      # never the real .env lists
 
     def run_agent(self, messages, rows, client=None, store=None, dry_run=False, intents=None):
         from agents import chat_allocation_agent as ca
         teams, client, store = FakeTeams(messages), client or FakeClient(), store or FakeStore()
+        self.extractor = FakeExtractor(rows)
         agent = ca.ChatAllocationAgent(dry_run=dry_run, today=TODAY, teams=teams, client=client,
-                                       extractor=FakeExtractor(rows), store=store, intents=intents or FakeIntents())
+                                       extractor=self.extractor, store=store, intents=intents or FakeIntents())
         session = mock.MagicMock()
         projects = [{"id": i, "name": n, "active": i in ACTIVE, "statusName": "In Progress",
                      "pmId": 70 + i, "pmName": "Asha K", "pmEmail": f"pm{i}@x.com"} for i, n in PROJECTS.items()]
@@ -330,6 +333,8 @@ class AgentTests(unittest.TestCase):
                 mock.patch.object(ca, "load_aliases", lambda: ({}, {})), \
                 mock.patch.object(ca.settings, "chat_allocation_users", "sachin@x.com"), \
                 mock.patch.object(ca.settings, "teams_dm_test_recipient", self.test_to), \
+                mock.patch.object(ca.settings, "ignore_ids", self.ignore_ids), \
+                mock.patch.object(ca.settings, "chat_pm_ids", self.pm_ids), \
                 mock.patch.object(ca, "_id_to_email", lambda: {}), \
                 mock.patch.object(ca.ChatAllocationAgent, "_load_people", lambda self, e: [("sachin@x.com", User())]):
             result = agent.run()
@@ -438,6 +443,38 @@ class AgentTests(unittest.TestCase):
                                          intents=intents)
         self.assertIn("Asha K: add you to project Apollo", teams3.sent[0][1])
 
+    def test_follow_up_adds_to_the_waiting_plan_and_sees_the_conversation(self):
+        store = FakeStore()
+        self.run_agent([self.msg("m1")], [raw(hours=2, msg="m1")], store=store)
+        question = self.msg("a1", "Which project is the 3 h for?", sender_id="agent-id", hour=11)
+        _, teams, _, _ = self.run_agent([self.msg("m1"), question, self.msg("m2", "Minimalist 3hr", hour=12)],
+                                        [raw("Minimalist", "", 3, msg="m2")], store=store)
+        self.assertEqual(self.extractor.context, ["Protecta - Development - 2h", "Which project is the 3 h for?"])
+        self.assertIn("Protecta / Development: 2 h", teams.sent[0][1])
+        self.assertIn("Minimalist / Support: 3 h", teams.sent[0][1])
+        _, _, client, _ = self.run_agent([self.msg("y1", "yes", hour=13)], [], store=store)
+        self.assertEqual(sorted(c[0] for c in client.created), [1, 2])
+
+    def test_replacing_message_drops_the_waiting_rows(self):
+        store = FakeStore()
+        self.run_agent([self.msg("m1")], [raw(hours=2, msg="m1")], store=store)
+        _, teams, _, _ = self.run_agent([self.msg("m2", "only Minimalist 3h", hour=11)],
+                                        [raw("Minimalist", "", 3, msg="m2", replaces=True)], store=store)
+        self.assertNotIn("Protecta", teams.sent[0][1])
+
+    def test_hours_without_project_are_asked_about(self):
+        _, teams, _, _ = self.run_agent([self.msg("m1", "2hr")], [raw(project=None, task="", hours=2, msg="m1")])
+        self.assertIn("2 h: for which project and task?", teams.sent[0][1])
+        self.assertNotIn("cancelling", teams.sent[0][1])
+
+    def test_request_is_not_read_as_a_plan(self):
+        text = "add me to archival data validation test"
+        intents = FakeIntents({text: Intent("request", "archival", "data validation test")})
+        _, teams, _, _ = self.run_agent([self.msg("m1", text)], [raw(hours=None, msg="m1")], intents=intents)
+        self.assertEqual(self.extractor.seen, [])                  # never sent to the plan reader
+        self.assertEqual([t for t, _ in teams.sent], ["pm5@x.com", "sachin@x.com"])
+        self.assertIn("to add task 'data validation test' in LST NetSuite Data Archival Solution", teams.sent[1][1])
+
     def test_missing_task_goes_to_the_pm(self):
         _, teams, _, _ = self.run_agent([self.msg("m1")], [raw("Protecta", "Design", 3, msg="m1")])
         self.assertEqual([t for t, _ in teams.sent], ["pm1@x.com", "sachin@x.com"])
@@ -461,14 +498,13 @@ class AgentTests(unittest.TestCase):
         self.assertIn("[TEST, meant for Asha K]", teams.sent[0][1])
 
     def test_ignored_pm_only_messaged_when_in_pm_list(self):
-        from agents import chat_allocation_agent as ca
-        with mock.patch.object(ca.settings, "ignore_ids", "74"):
-            _, teams, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
-            self.assertEqual([t for t, _ in teams.sent], ["sachin@x.com"])
-            self.assertIn("Ask the PM, Asha K.", teams.sent[0][1])
-            with mock.patch.object(ca.settings, "chat_pm_ids", "74"):
-                _, teams2, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
-            self.assertEqual([t for t, _ in teams2.sent], ["pm4@x.com", "sachin@x.com"])
+        self.ignore_ids = "74"
+        _, teams, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
+        self.assertEqual([t for t, _ in teams.sent], ["sachin@x.com"])
+        self.assertIn("Ask the PM, Asha K.", teams.sent[0][1])
+        self.pm_ids = "74"
+        _, teams2, _, _ = self.run_agent([self.msg("m1")], [raw("Apollo", "Design", 3, msg="m1")])
+        self.assertEqual([t for t, _ in teams2.sent], ["pm4@x.com", "sachin@x.com"])
 
 
 class WatchTests(unittest.TestCase):

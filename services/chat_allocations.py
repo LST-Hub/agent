@@ -86,6 +86,7 @@ class ChatPlan:
     skipped: List[str] = field(default_factory=list)              # already in TaskSprint
     problems: List[str] = field(default_factory=list)             # the person has to fix these
     requests: List[PmRequest] = field(default_factory=list)       # the PM has to fix these
+    replaces: bool = False   # the message replaces the waiting plan ("instead", "only"); otherwise it adds to it
 
     @property
     def total_seconds(self) -> int:
@@ -121,33 +122,35 @@ def _starts_with_task(written: str, tasks: Sequence[Dict]) -> Optional[Dict]:
     return hits[0]
 
 
-def _find(written: str, tasks: Sequence[Dict]) -> Tuple[Optional[Dict], str, List[str]]:
-    """(task, note, ambiguous candidates) for written text among tasks."""
+def _find(written: str, tasks: Sequence[Dict], strict: bool = False) -> Tuple[Optional[Dict], str, List[str]]:
+    """(task, note, ambiguous candidates) for written text among tasks.
+    strict: the words must be the task's name (no close spelling, no 'starts with a task name')."""
     m = NameMatcher({t["id"]: t["name"] for t in tasks}).match(written)
-    if m.id is not None:
+    if m.id is not None and not (strict and m.method == "fuzzy"):
         note = f"'{written}' read as task {m.name}" if m.method == "fuzzy" else ""
         return next(t for t in tasks if t["id"] == m.id), note, []
-    hit = _starts_with_task(written, tasks)
+    hit = None if strict else _starts_with_task(written, tasks)
     if hit is not None:
         return hit, f"'{written}' read as task {hit['name']}", []
     return None, "", m.candidates if m.method == "ambiguous" else []
 
 
-def pick_task(written: str, project_id: int, project_name: str,
-              tasks: Sequence[Dict]) -> Tuple[Optional[Dict], str, str, Optional[PmRequest]]:
+def pick_task(written: str, project_id: int, project_name: str, tasks: Sequence[Dict],
+              strict: bool = False) -> Tuple[Optional[Dict], str, str, Optional[PmRequest]]:
     """
     Task for one row. tasks: active tasks of the project with an `assigned` flag.
+    strict=True for requests ("add me to task X"): X must be the task's name, not a close spelling or a prefix.
     Returns (task or None, problem for the person, note, request for the PM).
     """
     mine = [t for t in tasks if t["assigned"]]
     my_names = [t["name"] for t in mine]
     if written:
-        task, note, candidates = _find(written, mine)
+        task, note, candidates = _find(written, mine, strict)
         if task is not None:
             return task, "", note, None
         if candidates:
             return None, f"{project_name}: '{written}' could be {', '.join(candidates)}. Which one?", "", None
-        other, _, _ = _find(written, [t for t in tasks if not t["assigned"]])
+        other, _, _ = _find(written, [t for t in tasks if not t["assigned"]], strict)
         if other is not None:
             return None, "", "", PmRequest(ASSIGN_TASK, project_id, project_name, other["name"], my_tasks=my_names)
         if mine:
@@ -182,7 +185,8 @@ def build_plan(raw_rows: Iterable[RawAllocation], sender_names: Iterable[str], t
     me = {normalize(n) for n in sender_names if n}
 
     for raw in raw_rows:
-        label = raw.project_text or raw.project or "plan"
+        plan.replaces = plan.replaces or raw.replaces_earlier
+        label = raw.project_text or raw.project or raw.task or "plan"
         if normalize(raw.person) not in me and normalize(raw.person_text) not in me:
             plan.problems.append(f"'{raw.evidence}': only your own plan can be saved from this chat.")
             continue
@@ -191,8 +195,12 @@ def build_plan(raw_rows: Iterable[RawAllocation], sender_names: Iterable[str], t
                     else f"{raw.start_date:%d-%m-%Y} to {raw.end_date:%d-%m-%Y}")
             plan.problems.append(f"{label}: only today's plan is saved for now (you wrote {when}).")
             continue
-        if raw.project is None or raw.hours_per_day == 0:
+        if raw.hours_per_day == 0 or (raw.project is None and raw.hours_per_day is None):
             plan.problems.append(f"{label}: removing or cancelling work is not supported yet; change it in TaskSprint.")
+            continue
+        if raw.project is None:
+            plan.problems.append(f"{_hours(raw.hours_per_day * 3600)}: for which project and task? "
+                                 "Send it like Project - Task - 2 h.")
             continue
         if raw.hours_per_day is None:
             plan.problems.append(f"{label}: how many hours? Send it again with the hours.")
@@ -338,3 +346,10 @@ def requested_html(asked: Sequence[Tuple[str, str]]) -> str:
                 "and I will ask the PM. Or post your plan; if you are not on a project or task, I ask the PM myself.</p>")
     return ("<p>I have already asked today:</p><ul>" + "".join(f"<li>{e(pm)}: {e(what)}</li>" for pm, what in asked)
             + "</ul><p>Once it is done in TaskSprint, send that part of your plan again.</p>")
+
+
+def merge_rows(waiting: Sequence[AllocationRow], new: Sequence[AllocationRow]) -> List[AllocationRow]:
+    """A follow-up adds to the waiting plan: same project and task -> the new hours, others are kept."""
+    keys = {(r.project_id, r.task_id) for r in new}
+    rows = [r for r in waiting if (r.project_id, r.task_id) not in keys] + list(new)
+    return sorted(rows, key=lambda r: (r.project_name, r.task_name))

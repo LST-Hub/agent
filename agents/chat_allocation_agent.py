@@ -36,9 +36,12 @@ from services.allocation_extraction import OpenAIAllocationExtractor
 from services.allocation_matching import NameMatcher, load_aliases
 from services.chat_allocations import (
     ADD_TO_PROJECT, CANCELLED_HTML, GREETING_HTML, HELP_HTML, NOTHING_WAITING_HTML, THANKS_HTML, AllocationRow,
-    ChatPlan, PmRequest, build_plan, classify_reply, greeting_html, has_content, pick_task, pm_message_html,
-    reply_html, requested_html, rows_from_json, rows_to_json,
+    ChatPlan, PmRequest, build_plan, classify_reply, greeting_html, has_content, merge_rows, pick_task,
+    pm_message_html, reply_html, requested_html, rows_from_json, rows_to_json,
 )
+from services.chat_intent import Intent
+
+NOT_READ_HTML = "<p>I could not read a plan from that. Send it like: Project - Task - 3 h (one line per task).</p>"
 from services.project_health_service import CLOSED_STATUSES
 from services.tasksprint_api import TaskSprintClient, TaskSprintError
 from utils.date_utils import is_holiday, is_weekend
@@ -223,27 +226,40 @@ class ChatAllocationAgent:
     def _handle_person(self, store, teams, email: str, user) -> Optional[Dict]:
         chat_id = teams.open_chat(email)
         since = datetime.combine(self.today, datetime.min.time())
-        messages = [m for m in teams.read_chat(chat_id, since)
-                    if m.sender_id != teams.sender_id and m.sent_at.date() == self.today]
-        handled = self._handled_ids(store, [m.id for m in messages])
-        new = [m for m in messages if m.id not in handled]
+        today = [m for m in teams.read_chat(chat_id, since) if m.sent_at.date() == self.today]   # both sides
+        mine = [m for m in today if m.sender_id != teams.sender_id]
+        handled = self._handled_ids(store, [m.id for m in mine])
+        new = [m for m in mine if m.id not in handled]
         if not new:
             return None
 
         ctx = self._context(user)
-        # Messages in the order sent: plan text is collected until a "yes" / "no", which acts on the plan before it
+
+        def before(m):
+            """Earlier messages of today, the agent's own included (context for the AI)."""
+            return today[:today.index(m)]
+
+        # In the order sent: plan messages are collected and read together; anything else first acts on them
         parts, buffer = [], []
+
+        def flush():
+            if buffer:
+                parts.append(self._read_plan(store, teams, user, list(buffer), ctx, before(buffer[0])))
+                buffer.clear()
+
         for m in new:
             kind = classify_reply(m.text)
-            if kind == "plan":
+            if kind in ("yes", "no"):
+                flush()
+                parts.append(self._answer(store, user, m, kind))
+                continue
+            intent = self._classifier().classify(m.text, before(m))
+            if intent.intent == "plan":
                 buffer.append(m)
                 continue
-            if buffer:
-                parts.append(self._read_plan(store, teams, user, buffer, ctx))
-                buffer = []
-            parts.append(self._answer(store, user, m, kind))
-        if buffer:
-            parts.append(self._read_plan(store, teams, user, buffer, ctx))
+            flush()
+            parts.append(self._other_message(store, teams, user, m, ctx, intent))
+        flush()
 
         result = {"user": user.name, "messages": len(new), "reply": ""}
         body = "".join(p for p in parts if p)
@@ -300,22 +316,32 @@ class ChatAllocationAgent:
                            f"asked to {r.describe().replace(' you', ' the person', 1)}." for r in requests}
         return {r.key: self._tell_pm(store, teams, user, r, ctx["projects"][r.project_id]) for r in requests}
 
-    def _read_plan(self, store, teams, user, messages, ctx) -> str:
+    def _classifier(self):
+        if self._intents is None:
+            from services.chat_intent import OpenAIIntentClassifier
+            self._intents = OpenAIIntentClassifier(settings.ai.api_key, settings.ai.extraction_model)
+        return self._intents
+
+    def _read_plan(self, store, teams, user, messages, ctx, context=()) -> str:
         """Plan messages -> waiting plan + the reply part asking for yes (and what to fix).
-        Messages without a plan are answered as requests, questions or small talk."""
+        context: earlier messages of today, e.g. the agent's "how many hours?" that "2hr" answers.
+        A follow-up adds to the plan still waiting; it replaces it only when the message says so."""
         from database.agent_store import ChatPendingPlan, _utcnow
         extractor = self._extractor or OpenAIAllocationExtractor(settings.ai.api_key, settings.ai.extraction_model)
-        raw = extractor.extract(messages, [user.name], [ctx["names"][i] for i in ctx["active"]])
+        raw = extractor.extract(messages, [user.name], [ctx["names"][i] for i in ctx["active"]], context=context)
         plan = build_plan(raw, {user.name, *(m.sender for m in messages)}, self.today, ctx["matcher"], ctx["active"],
                           ctx["member_ids"], ctx["tasks"], ctx["existing"])
         if not has_content(plan):
-            return "".join(self._other_message(store, teams, user, m, ctx) for m in messages)
+            self._mark(store, messages, user.id, "no_plan", NOT_READ_HTML)
+            return NOT_READ_HTML
         pm_notes = self._ask_pms(store, teams, user, plan.requests, ctx)
+        earlier = self._pending(store, user.id)
+        if plan.rows and earlier is not None and not plan.replaces:
+            plan.rows = merge_rows(rows_from_json(earlier.rows), plan.rows)
         if self.dry_run:
             return reply_html(self.today, plan, pm_notes, state="dry")
         if plan.rows:
-            earlier = self._pending(store, user.id)
-            if earlier is not None:          # a new plan replaces the one still waiting
+            if earlier is not None:          # the new (or merged) plan takes the place of the waiting one
                 earlier.status, earlier.decided_at = "replaced", _utcnow()
             store.add(ChatPendingPlan(user_id=user.id, work_date=self.today, rows=rows_to_json(plan.rows),
                                       status="pending"))
@@ -324,11 +350,8 @@ class ChatAllocationAgent:
         logger.info(f"{user.name}: plan read ({len(plan.rows)} row(s) waiting for yes, {len(plan.requests)} PM request(s)).")
         return part
 
-    def _other_message(self, store, teams, user, message, ctx) -> str:
+    def _other_message(self, store, teams, user, message, ctx, intent: Intent) -> str:
         """A message that is not a plan: answer requests ("add this task to me"), questions and small talk."""
-        from services.chat_intent import OpenAIIntentClassifier
-        classifier = self._intents or OpenAIIntentClassifier(settings.ai.api_key, settings.ai.extraction_model)
-        intent = classifier.classify(message.text)
         if intent.intent == "request":
             part = self._request(store, teams, user, intent, ctx)
         else:
@@ -346,7 +369,8 @@ class ChatAllocationAgent:
         if prj.id not in ctx["member_ids"]:
             request = PmRequest(ADD_TO_PROJECT, prj.id, prj.name, posted=[intent.task] if intent.task else [])
         else:
-            task, problem, _, request = pick_task(intent.task or "", prj.id, prj.name, ctx["tasks"].get(prj.id, []))
+            task, problem, _, request = pick_task(intent.task or "", prj.id, prj.name, ctx["tasks"].get(prj.id, []),
+                                                  strict=True)
             if request is None:
                 if task is not None:
                     return (f"<p>You are already on task {task['name']} in {prj.name}. Post your plan like: "
